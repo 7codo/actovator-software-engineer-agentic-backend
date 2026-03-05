@@ -1,0 +1,30 @@
+[project]
+name = "nextjs-ai-engineer-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "copilotkit>=0.1.78",
+    "e2b>=2.14.0",
+    "fastapi[standard]>=0.115.14",
+    "langchain-core>=1.2.16",
+    "langchain-google-genai>=4.2.1",
+    "langchain-mcp-adapters>=0.2.1",
+    "langchain-nvidia-ai-endpoints>=1.1.0",
+    "langchain-openai>=1.1.10",
+    "langgraph>=1.0.10",
+    "langgraph-checkpoint-postgres>=3.0.4",
+    "psycopg-binary>=3.3.3",
+    "pydantic-settings>=2.13.1",
+    "sensai-utils>=1.6.0",
+]
+
+[tool.poetry]
+packages = [
+    { include = "app" }
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
