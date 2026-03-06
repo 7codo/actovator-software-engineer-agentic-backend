@@ -1,0 +1,1 @@
+['read_file', 'create_text_file', 'list_dir', 'find_file', 'replace_content', 'delete_lines', 'replace_lines', 'insert_at_line', 'search_for_pattern', 'restart_language_server', 'active_language_server', 'get_symbols_overview', 'find_symbol', 'find_referencing_symbols', 'replace_symbol_body', 'insert_after_symbol', 'insert_before_symbol', 'rename_symbol', 'execute_shell_command']

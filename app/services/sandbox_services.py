@@ -5,7 +5,7 @@ from app.constants import PROJECT_PATH
 from app.core.config import settings
 
 
-async def create_sandbox_with_auto_pause(github_token:str):
+async def create_sandbox_with_auto_pause(github_token: str | None = None):
     """
     Creates a new sandbox with auto_pause enabled.
 
@@ -24,15 +24,18 @@ async def create_sandbox_with_auto_pause(github_token:str):
         },
         envs={
             "NEXT_TELEMETRY_DISABLED": "1",
-            "GITHUB_TOKEN": github_token,
+            "GITHUB_TOKEN": github_token or "",
         },
     )
-    await sandbox.commands.run('git config --global user.email "contact@actovator.com"')
-    await sandbox.commands.run('git config --global user.name "actovator"')
-    await sandbox.commands.run('git config --global credential.helper store')
-    await sandbox.commands.run(
-        'echo "https://oauth2:$GITHUB_TOKEN@github.com" > ~/.git-credentials'
-    )
+    if github_token:
+        await sandbox.commands.run(
+            'git config --global user.email "contact@actovator.com"'
+        )
+        await sandbox.commands.run('git config --global user.name "actovator"')
+        await sandbox.commands.run("git config --global credential.helper store")
+        await sandbox.commands.run(
+            'echo "https://oauth2:$GITHUB_TOKEN@github.com" > ~/.git-credentials'
+        )
     return sandbox.sandbox_id
 
 
@@ -70,7 +73,8 @@ async def upload_files_to_sandbox(sandbox_id: str, files: List[WriteEntry]):
     )
     await sandbox.files.write_files(files)
 
-async def kill_sandbox(sandbox_id: str): ## kill for beta save sandbox meaning delete
+
+async def kill_sandbox(sandbox_id: str):  ## kill for beta save sandbox meaning delete
     """
     Kills (terminates) a sandbox given its ID.
 
@@ -89,8 +93,8 @@ async def kill_sandbox(sandbox_id: str): ## kill for beta save sandbox meaning d
 if __name__ == "__main__":
     import asyncio
 
-    sandbox_id = asyncio.run(create_sandbox_with_auto_pause())
-    print(f"sandbox_id: {sandbox_id}")
+    # sandbox_id = asyncio.run(create_sandbox_with_auto_pause())
+    # print(f"sandbox_id: {sandbox_id}")
 
     # Example: kill the created sandbox (uncomment to run)
-    # asyncio.run(kill_sandbox(sandbox_id))
+    asyncio.run(kill_sandbox(sandbox_id="igjgy8c0rxosyitmur8x0"))

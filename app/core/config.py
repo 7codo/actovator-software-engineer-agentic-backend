@@ -1,4 +1,6 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     app_name: str = "Actovator"
@@ -15,3 +17,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+os.environ["GOOGLE_API_KEY"] = settings.google_api_key
