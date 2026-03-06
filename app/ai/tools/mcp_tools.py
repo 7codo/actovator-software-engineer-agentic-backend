@@ -76,7 +76,7 @@ async def get_or_create_tools(sandbox_id: str) -> Result:
     return result
 
 
-async def build_tools(
+async def filtered_tools(
     sandbox_id: str,
     allowed_tools: list[str] | None = None,
     excluded_tools: list[str] | None = None,
@@ -126,21 +126,21 @@ async def execute_specific_tool(
 
 
 def debug_mcp():
-    sandbox_id = "i8l1hn2cvt7nstr0jn716"
+    sandbox_id = "iditam50fvm0duj0v1rpy"
     sandbox = Sandbox.connect(sandbox_id=sandbox_id, api_key=settings.e2b_api_key)
     dirname = PROJECT_PATH
     # handle = sandbox.files.watch_dir(dirname)
     # Trigger file write event
-    sandbox.files.write(f"{dirname}/test2/test2", "hello")
+    # sandbox.files.write(f"{dirname}/test2/test2", "hello")
 
     # Retrieve the latest new events since the last `get_new_events()` call
     # events = handle.get_new_events()
     # for event in events:
     #     print(event)
-    # mcp_url = sandbox.get_mcp_url()
-    # mcp_token = await sandbox.get_mcp_token()
-    # print(mcp_url)
-    # print(mcp_token)
+    mcp_url = sandbox.get_mcp_url()
+    mcp_token = sandbox.get_mcp_token()
+    print(mcp_url)
+    print(mcp_token)
     # client = await _create_mcp_client(mcp_url=mcp_url, mcp_token=mcp_token)
 
     # tools = await client.get_tools()

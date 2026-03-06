@@ -32,16 +32,16 @@ template = (
             "npm install -g npm@latest",
             "pip install uv",
             "npm install -g pm2",
-            "npx playwright install chrome",
-            "npx playwright install-deps",
         ],
         user="root",
     )
     .run_cmd(
         [
-            "npx playwright install chrome",
-            "npx playwright install-deps",
+            "npm install -g agent-browser",
+            "agent-browser install",
+            "agent-browser install --with-deps",
         ],
+        user="root",
     )
     .set_user("user")
     .set_workdir(PROJECT_PATH)
@@ -49,6 +49,7 @@ template = (
         'npx create-next-app . --ts --tailwind --eslint --import-alias "@/*" '
         "--use-npm --app --no-react-compiler --src-dir --turbopack"
     )
+    .run_cmd("mkdir -p /home/user/project/.actovator && echo '{\"languages\": [\"bash\", \"markdown\", \"toml\", \"typescript\", \"yaml\"]}' > /home/user/project/.actovator/config.json") # create .actovator then initia languages fit nextjs project
     .run_cmd("npx shadcn@latest init -d")
     .run_cmd("npx shadcn@latest add button")
     .set_workdir(PROJECT_PATH)

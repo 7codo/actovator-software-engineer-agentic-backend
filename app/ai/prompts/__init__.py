@@ -7,9 +7,9 @@ def _read_prompt(filename: str) -> str:
 
 
 # ASSISTANT_PROMPT: str = _read_prompt("assistant_prompt.md")
-CODING_PROMPT: str = _read_prompt("coding_prompt.md")
+EDITING_PROMPT: str = _read_prompt("editing_prompt.md")
 
 __all__ = [
-    "CODING_PROMPT",
+    "EDITING_PROMPT",
     # "ASSISTANT_PROMPT",
 ]

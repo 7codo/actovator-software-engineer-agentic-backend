@@ -15,19 +15,18 @@ router = APIRouter(prefix="/sandbox", tags=["sandbox"])
 
 
 @router.post("/create", summary="Create a new sandbox with auto_pause enabled")
-async def create_sandbox():
+async def create_sandbox(github_token: str):
     """
     Creates a new sandbox environment with auto_pause enabled.
     Returns the sandbox ID.
     """
     try:
-        sandbox_id = await create_sandbox_with_auto_pause()
+        sandbox_id = await create_sandbox_with_auto_pause(github_token=github_token)
         return {"id": sandbox_id}
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
         )
-
 
 @router.get("/host/{sandbox_id}", summary="Get the host URL for a sandbox")
 async def get_host(sandbox_id: str):

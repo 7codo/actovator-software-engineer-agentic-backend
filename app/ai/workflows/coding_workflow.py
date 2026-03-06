@@ -3,10 +3,11 @@ import uuid
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 # from app.ai.agents.coding_agents import build_coding_agent, build_testing_agent
-from app.ai.tools.mcp_tools import get_or_create_tools
+from app.ai.tools.mcp_tools import filtered_tools
 from app.ai.llm.models import gemini_3_pro, gemini_flash_latest, minimax_m2_5, gemini_3_flash_preview
-from app.ai.prompts import CODING_PROMPT
+from app.ai.prompts import EDITING_PROMPT
 from langchain.agents import create_agent
+from langchain.chat_models import init_chat_model
 
 class State(MessagesState):
     sandbox_id: str | None
@@ -19,10 +20,11 @@ async def coding_step(state: State):
     print("sandboxId", sandboxId)
     if not sandboxId:
         raise Exception("The sandbox id is required!")
-    tools_result = await get_or_create_tools(sandboxId)
+    tools_result = await filtered_tools(sandboxId, excluded_tools=["active_language_server"])
+    model = init_chat_model()
     agent = create_agent(
         model=gemini_3_flash_preview,
-        system_prompt=CODING_PROMPT,
+        system_prompt=EDITING_PROMPT,
         tools=tools_result.tools,
     )
     result = await agent.ainvoke({"messages": messages})

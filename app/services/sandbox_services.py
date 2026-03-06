@@ -5,7 +5,7 @@ from app.constants import PROJECT_PATH
 from app.core.config import settings
 
 
-async def create_sandbox_with_auto_pause():
+async def create_sandbox_with_auto_pause(github_token:str):
     """
     Creates a new sandbox with auto_pause enabled.
 
@@ -24,7 +24,14 @@ async def create_sandbox_with_auto_pause():
         },
         envs={
             "NEXT_TELEMETRY_DISABLED": "1",
+            "GITHUB_TOKEN": github_token,
         },
+    )
+    await sandbox.commands.run('git config --global user.email "contact@actovator.com"')
+    await sandbox.commands.run('git config --global user.name "actovator"')
+    await sandbox.commands.run('git config --global credential.helper store')
+    await sandbox.commands.run(
+        'echo "https://oauth2:$GITHUB_TOKEN@github.com" > ~/.git-credentials'
     )
     return sandbox.sandbox_id
 
