@@ -166,6 +166,25 @@ wheels = [
 ]
 
 [[package]]
+name = "anthropic"
+version = "0.84.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "docstring-parser" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/04/ea/0869d6df9ef83dcf393aeefc12dd81677d091c6ffc86f783e51cf44062f2/anthropic-0.84.0.tar.gz", hash = "sha256:72f5f90e5aebe62dca316cb013629cfa24996b0f5a4593b8c3d712bc03c43c37", size = 539457, upload-time = "2026-02-25T05:22:38.54Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/ca/218fa25002a332c0aa149ba18ffc0543175998b1f65de63f6d106689a345/anthropic-0.84.0-py3-none-any.whl", hash = "sha256:861c4c50f91ca45f942e091d83b60530ad6d4f98733bfe648065364da05d29e7", size = 455156, upload-time = "2026-02-25T05:22:40.468Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.12.1"
 source = { registry = "https://pypi.org/simple" }
@@ -411,6 +430,22 @@ wheels = [
 ]
 
 [[package]]
+name = "deepagents"
+version = "0.4.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-core" },
+    { name = "langchain-google-genai" },
+    { name = "wcmatch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/b1/19b9926ddb16ebef90493f846930dc9853b21ac219cd6ec35cfea713826f/deepagents-0.4.7.tar.gz", hash = "sha256:58a35ef53fae3b5e926ed0f59543f50c34ed838d52cdff8fd0ac10da1ee71a78", size = 88755, upload-time = "2026-03-06T21:35:56.277Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/79/1b3cad3d98c6f75eef78d4ba21f9fa6541152562f5c41814517a21367b31/deepagents-0.4.7-py3-none-any.whl", hash = "sha256:b879f4c4218fb1f78177c05ae34d0617374dd389df1da1a2a4ac76cc01c99911", size = 100532, upload-time = "2026-03-06T21:35:55.126Z" },
+]
+
+[[package]]
 name = "distro"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -435,6 +470,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/92/df/929ee0b5d2c8bd8d713c45e71b94ab57c7e11e322130724d54f469b2cd48/dockerfile-parse-2.0.1.tar.gz", hash = "sha256:3184ccdc513221983e503ac00e1aa504a2aa8f84e5de673c46b0b6eee99ec7bc", size = 24556, upload-time = "2023-07-18T13:36:07.897Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/6c/79cd5bc1b880d8c1a9a5550aa8dacd57353fa3bb2457227e1fb47383eb49/dockerfile_parse-2.0.1-py2.py3-none-any.whl", hash = "sha256:bdffd126d2eb26acf1066acb54cb2e336682e1d72b974a40894fac76a4df17f6", size = 14845, upload-time = "2023-07-18T13:36:06.052Z" },
+]
+
+[[package]]
+name = "docstring-parser"
+version = "0.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/9d/c3b43da9515bd270df0f80548d9944e389870713cc1fe2b8fb35fe2bcefd/docstring_parser-0.17.0.tar.gz", hash = "sha256:583de4a309722b3315439bb31d64ba3eebada841f2e2cee23b99df001434c912", size = 27442, upload-time = "2025-07-21T07:35:01.868Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl", hash = "sha256:cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708", size = 36896, upload-time = "2025-07-21T07:35:00.684Z" },
 ]
 
 [[package]]
@@ -967,6 +1011,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-anthropic"
+version = "1.3.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "langchain-core" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/30/4e/7c1ffac126f5e62b0b9066f331f91ae69361e73476fd3ca1b19f8d8a3cc3/langchain_anthropic-1.3.4.tar.gz", hash = "sha256:000ed4c2d6fb8842b4ffeed22a74a3e84f9e9bcb63638e4abbb4a1d8ffa07211", size = 671858, upload-time = "2026-02-24T13:54:01.738Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/cf/b7c7b7270efbb3db2edbf14b09ba9110a41628f3a85a11cae9527a35641c/langchain_anthropic-1.3.4-py3-none-any.whl", hash = "sha256:cd112dcc8049aef09f58b3c4338b2c9db5ee98105e08664954a4e40d8bf120b9", size = 47454, upload-time = "2026-02-24T13:54:00.53Z" },
+]
+
+[[package]]
 name = "langchain-core"
 version = "1.2.16"
 source = { registry = "https://pypi.org/simple" }
@@ -1347,6 +1405,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "copilotkit" },
+    { name = "deepagents" },
     { name = "e2b" },
     { name = "fastapi", extra = ["standard"] },
     { name = "langchain-core" },
@@ -1364,6 +1423,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "copilotkit", specifier = ">=0.1.78" },
+    { name = "deepagents", specifier = ">=0.4.7" },
     { name = "e2b", specifier = ">=2.14.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.14" },
     { name = "langchain-core", specifier = ">=1.2.16" },

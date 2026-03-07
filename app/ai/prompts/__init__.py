@@ -1,18 +1,12 @@
-from pathlib import Path
 
+from app.utils.files_utils import read_file_from_init
 
-def _read_prompt(filename: str) -> str:
-    base_dir = Path(__file__).parent
-    file_path = base_dir / filename
-    return file_path.read_text(encoding="utf-8")
-
-
-# ASSISTANT_PROMPT: str = _read_prompt("assistant_prompt.md")
-EDITING_PROMPT: str = _read_prompt("editing_prompt.md")
-TESTING_PROMPT: str = _read_prompt("testing_prompt.md")
+EDITING_PROMPT: str = read_file_from_init("editing_prompt.md", "app.ai.prompts")
+TESTING_PROMPT: str = read_file_from_init("testing_prompt.md", "app.ai.prompts")
+E2E_TESTING_PROMPT: str = read_file_from_init("e2e_testing_prompt.md", "app.ai.prompts")
 
 __all__ = [
     "EDITING_PROMPT",
     "TESTING_PROMPT",
-    # "ASSISTANT_PROMPT",
+    "E2E_TESTING_PROMPT",
 ]

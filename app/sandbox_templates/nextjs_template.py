@@ -42,6 +42,7 @@ template = (
             "npm install -g agent-browser",
             "agent-browser install",
             "agent-browser install --with-deps",
+            "apt-get install -y libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libnspr4 libnss3 libx11-6 libxcb1 libxext6 libxss1 libxtst6 fonts-liberation libappindicator3-1 libu2f-udev libvulkan1" #WHY? in somehow it complains when I run chromium about missing packages even I installed deps 
         ],
         user="root",
     )

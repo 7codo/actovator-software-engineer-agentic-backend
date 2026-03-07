@@ -18,4 +18,5 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-os.environ["GOOGLE_API_KEY"] = settings.google_api_key
+if not os.environ.get("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = settings.google_api_key
