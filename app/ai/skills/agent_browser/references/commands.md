@@ -1,6 +1,6 @@
 # Command Reference
 
-Complete reference for all agent-browser commands. For quick start and common patterns, see SKILL.md.
+Complete reference for all approved agent-browser commands. For quick start and common patterns.
 
 ## Navigation
 
@@ -12,7 +12,6 @@ agent-browser back            # Go back
 agent-browser forward         # Go forward
 agent-browser reload          # Reload page
 agent-browser close           # Close browser (aliases: quit, exit)
-agent-browser connect 9222    # Connect to browser via CDP port
 ```
 
 ## Snapshot (page analysis)
@@ -69,24 +68,6 @@ agent-browser get styles @e1      # Get computed styles (font, color, bg, etc.)
 agent-browser is visible @e1      # Check if visible
 agent-browser is enabled @e1      # Check if enabled
 agent-browser is checked @e1      # Check if checked
-```
-
-## Screenshots and PDF
-
-```bash
-agent-browser screenshot          # Save to temporary directory
-agent-browser screenshot path.png # Save to specific path
-agent-browser screenshot --full   # Full page
-agent-browser pdf output.pdf      # Save as PDF
-```
-
-## Video Recording
-
-```bash
-agent-browser record start ./demo.webm    # Start recording
-agent-browser click @e1                   # Perform actions
-agent-browser record stop                 # Stop and save video
-agent-browser record restart ./take2.webm # Stop current + start new
 ```
 
 ## Wait
@@ -161,17 +142,6 @@ agent-browser network requests                 # View tracked requests
 agent-browser network requests --filter api    # Filter requests
 ```
 
-## Tabs and Windows
-
-```bash
-agent-browser tab                 # List tabs
-agent-browser tab new [url]       # New tab
-agent-browser tab 2               # Switch to tab by index
-agent-browser tab close           # Close current tab
-agent-browser tab close 2         # Close tab by index
-agent-browser window new          # New window
-```
-
 ## Frames
 
 ```bash
@@ -218,35 +188,16 @@ agent-browser state load auth.json    # Restore saved state
 
 ```bash
 agent-browser --session <name> ...    # Isolated browser session
-agent-browser --json ...              # JSON output for parsing
-agent-browser --headed ...            # Show browser window (not headless)
-agent-browser --full ...              # Full page screenshot (-f)
-agent-browser --cdp <port> ...        # Connect via Chrome DevTools Protocol
-agent-browser -p <provider> ...       # Cloud browser provider (--provider)
-agent-browser --proxy <url> ...       # Use proxy server
-agent-browser --proxy-bypass <hosts>  # Hosts to bypass proxy
 agent-browser --headers <json> ...    # HTTP headers scoped to URL's origin
-agent-browser --executable-path <p>   # Custom browser executable
-agent-browser --extension <path> ...  # Load browser extension (repeatable)
 agent-browser --ignore-https-errors   # Ignore SSL certificate errors
-agent-browser --help                  # Show help (-h)
-agent-browser --version               # Show version (-V)
 agent-browser <command> --help        # Show detailed help for a command
 ```
 
 ## Debugging
 
 ```bash
-agent-browser --headed open example.com   # Show browser window
-agent-browser --cdp 9222 snapshot         # Connect via CDP port
-agent-browser connect 9222                # Alternative: connect command
 agent-browser console                     # View console messages
 agent-browser console --clear             # Clear console
 agent-browser errors                      # View page errors
 agent-browser errors --clear              # Clear errors
-agent-browser highlight @e1               # Highlight element
-agent-browser trace start                 # Start recording trace
-agent-browser trace stop trace.zip        # Stop and save trace
-agent-browser profiler start              # Start Chrome DevTools profiling
-agent-browser profiler stop trace.json    # Stop and save profile
 ```

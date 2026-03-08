@@ -1,123 +1,259 @@
+import hashlib
 import re
-import asyncio
-from typing import Any
+import textwrap
+from datetime import datetime
 
 from e2b import AsyncSandbox
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
+from app.constants import PROJECT_PATH
 from app.core.config import settings
-from app.constants import CDP_PORT, PROJECT_PATH
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_BROWSER_WORKSPACE = f"{PROJECT_PATH}/.actovator/tests/e2e"
+
+_AGENT_BROWSER_CMD_RE = re.compile(r"^\s*agent-browser\b", re.MULTILINE)
 
 
-def _insert_cdp_flag(cmd: str) -> str:
-    # Pattern finds all "agent-browser" (optionally with spaces after) 
-    # not already followed directly by "--cdp"
-    def replacer(match):
-        # Only insert if --cdp isn't already the next arg
-        head = match.group(0)
-        after = cmd[match.end():]
-        # If already has --cdp after "agent-browser", skip
-        if after.lstrip().startswith("--cdp"):
-            return head
-        return f"{head} --cdp {CDP_PORT}"
-    # Replace all cases of "agent-browser" not already with --cdp after
-    pattern = r"\bagent-browser\b(?!\s+--cdp)"
-    return re.sub(pattern, replacer, cmd)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _add_shebang(content: str) -> str:
+    if not content.startswith("#!"):
+        return "#!/usr/bin/env bash\nset -euo pipefail\n\n" + content
+    return content
+
+
+def _make_script_name(content: str) -> tuple[str, str]:
+    """Return (script_name_stem, sha1_digest) derived from content."""
+    digest = hashlib.sha1(content.encode()).hexdigest()[:8]
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    return f"script_{ts}_{digest}", digest
+
+
+def _content_digest(content: str) -> str:
+    return hashlib.sha1(content.encode()).hexdigest()[:8]
+
+
+def _shell_error(context: str, exc: Exception) -> dict:
+    """Uniform error dict for tools that return a dict."""
+    return {
+        "script_path": None,
+        "stdout": "",
+        "stderr": f"[{type(exc).__name__}] {context}: {exc}",
+        "exit_code": 1,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
 
 def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
 
     async def _get_sandbox() -> AsyncSandbox:
-        """Reusable helper to connect to the sandbox."""
         return await AsyncSandbox.connect(
             sandbox_id=sdbx_id, api_key=settings.e2b_api_key
         )
 
-    @tool
-    async def get_server_logs(lines_count: int = 25) -> str:
-        """Fetch and return Next.js development server logs from the sandbox.
-
-        Args:
-            lines_count (int): Number of log lines to retrieve. Defaults to 25.
-
-        Returns:
-            str: Server logs output.
-        """
-        sandbox = await _get_sandbox()
-        result = await sandbox.commands.run(
-            f"pm2 logs project --raw --time --lines {lines_count} --nostream"
-        )
-        SKIP = ("[TAILING]", "/home/user/.pm2/logs/")
-
-        lines = result.stdout.splitlines()
-        filtered = [line for line in lines if not any(line.startswith(p) for p in SKIP)]
-        return "\n".join(filtered).strip()
-
-    @tool
-    async def get_lint_checks() -> str:
-        """Run and return ESLint results for the Next.js project in the sandbox.
-
-        Returns:
-            str: Lint check output.
-        """
-        sandbox = await _get_sandbox()
-        result = await sandbox.commands.run("npm run lint", cwd=PROJECT_PATH)
-        return result.stdout
-
-    @tool
-    async def run_agent_browser_command(command: str) -> str:
-        """
-        Executes agent-browser CLI commands in the correct sandbox environment.
-
-        Use this tool instead of a generic shell command runner for all agent-browser operations,
-        as it provides the required privileges and sets the working directory appropriately.
-
-        **Note:** You can use this tool to create an agent-browser bash file and execute it.
-
-        Args:
-            command (str): The full agent-browser CLI command with arguments,
-                e.g., "agent-browser open http://localhost:3000".
-
-        Returns:
-            str: Output produced by the agent-browser command.
-        """
-        sandbox = await _get_sandbox()
-        browser_workspace = f"{PROJECT_PATH}/.actovator/tests/browser"
-
-        adjusted_command = _insert_cdp_flag(command)
-
-        result = await sandbox.commands.run(
-            adjusted_command, user="root", cwd=browser_workspace
-        )
-        return result.stdout
+    # ── Internal primitive (not exposed as a @tool) ─────────────────────────
 
     async def execute_shell_command(
         command: str,
-        user: str | None = None,
+        user: str = "root",
         cwd: str | None = None,
-        background: bool = False
-    ) -> str:
-        """
-        Executes an arbitrary shell command in the sandbox.
+        background: bool = False,
+    ):
+        """Run an arbitrary shell command inside the sandbox and return the result object."""
+        try:
+            sandbox = await _get_sandbox()
+            return await sandbox.commands.run(
+                command, user=user, cwd=cwd, background=background
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"execute_shell_command failed.\n"
+                f"Command: {command}\n"
+                f"Reason: {type(e).__name__}: {e}"
+            ) from e
+
+    # ── Public tools ─────────────────────────────────────────────────────────
+
+    @tool
+    async def get_server_logs(lines_count: int = 25) -> str:
+        """Fetch Next.js development server logs from the sandbox.
+
+        Under the hood, it runs: "pm2 logs project --raw --time --lines {lines_count} --nostream"
 
         Args:
-            command (str): The shell command to execute.
-            user (str, optional): User context in which to run the command ("user" or "root"). Defaults to "user".
-            cwd (str, optional): Working directory for the command. If not specified, use the project root.
-            background (bool, optional): Whether to run the command in the background.
+            lines_count: Number of log lines to retrieve (default 25).
 
         Returns:
-            str: Output of the shell command.
+            Filtered server log output, or an error string on failure.
         """
-        sandbox = await _get_sandbox()
+        try:
+            sandbox = await _get_sandbox()
+            result = await sandbox.commands.run(
+                f"pm2 logs project --raw --time --lines {lines_count} --nostream"
+            )
+        except Exception as e:
+            return f"[{type(e).__name__}] Failed to fetch server logs: {e}"
 
-        result = await sandbox.commands.run(command, user=user, cwd=cwd, background=background)
-        return result.stdout
+        skip_prefixes = ("[TAILING]", "/home/user/.pm2/logs/")
+        lines = [
+            line
+            for line in result.stdout.splitlines()
+            if not any(line.startswith(p) for p in skip_prefixes)
+        ]
+        return "\n".join(lines).strip()
+
+    @tool
+    async def get_lint_checks() -> str:
+        """Run ESLint on the Next.js project and return the results."""
+        try:
+            sandbox = await _get_sandbox()
+            result = await sandbox.commands.run("npm run lint", cwd=PROJECT_PATH)
+            return result.stdout
+        except Exception as e:
+            return f"[{type(e).__name__}] Failed to run lint checks: {e}"
+
+    @tool
+    async def run_agent_browser_command(command: str) -> str:
+        """Execute an agent-browser CLI command inside the sandbox.
+
+        Validates that the command starts with 'agent-browser' before running.
+
+        Args:
+            command: Full agent-browser command, e.g. "agent-browser goto http://localhost:3000".
+
+        Returns:
+            stdout of the command, or an error string on failure.
+        """
+        try:
+            stripped = command.strip()
+            if not stripped.startswith("agent-browser"):
+                raise ValueError(
+                    f"Invalid command: '{stripped}'. "
+                    "Only 'agent-browser' commands are supported. "
+                    "Example: 'agent-browser open http://localhost:3000'"
+                )
+
+            sandbox = await _get_sandbox()
+            result = await sandbox.commands.run(
+                stripped, user="root", cwd=_BROWSER_WORKSPACE
+            )
+
+            if result.exit_code != 0:
+                raise RuntimeError(
+                    f"Command failed (exit {result.exit_code}).\n"
+                    f"Stderr: {result.stderr or '(none)'}\n"
+                    f"Stdout: {result.stdout or '(none)'}"
+                )
+
+            return result.stdout
+
+        except (ValueError, RuntimeError) as e:
+            return f"[{type(e).__name__}] {e}"
+        except Exception as e:
+            return f"[Unexpected Error] {type(e).__name__}: {e}"
+
+    @tool
+    async def run_browser_agent_bash_script(
+        script_content: str,
+        script_name: str = "",
+        timeout: int = 60,
+    ) -> dict:
+        """Write an agent-browser bash script to bashs/, then execute it.
+
+        The script must contain at least one top-level 'agent-browser' command.
+        A shebang is prepended automatically when absent.
+
+        Args:
+            script_content: Full bash script body.
+            script_name:    Filename stem (no .sh extension). Auto-generated when omitted.
+            timeout:        Hard kill timeout in seconds (default 60).
+
+        Returns:
+            {
+                "script_path": str,   # path written inside the sandbox
+                "stdout":      str,
+                "stderr":      str,
+                "exit_code":   int,
+            }
+        """
+        # ── 1. Normalise content ─────────────────────────────────────────────
+        content = _add_shebang(textwrap.dedent(script_content).strip())
+
+        # ── 2. Validate agent-browser usage ──────────────────────────────────
+        if not _AGENT_BROWSER_CMD_RE.search(content):
+            return {
+                "script_path": None,
+                "stdout": "",
+                "stderr": (
+                    "Validation error: script must contain at least one "
+                    "'agent-browser <command>' call as the main command "
+                    "(not as a subcommand or argument)."
+                ),
+                "exit_code": 1,
+            }
+
+        # ── 3. Resolve script name & digest ──────────────────────────────────
+        digest = _content_digest(content)
+        if not script_name:
+            script_name, digest = _make_script_name(content)
+
+        script_name = script_name.removesuffix(".sh")
+        script_path = f"bashs/{script_name}.sh"
+
+        # ── 4. Ensure target directory exists ────────────────────────────────
+        try:
+            await execute_shell_command("mkdir -p bashs", cwd=_BROWSER_WORKSPACE)
+        except Exception as e:
+            return _shell_error("Failed to create bashs/ directory", e)
+
+        # ── 5. Write via heredoc (handles quotes/special chars safely) ────────
+        try:
+            delimiter = f"HEREDOC_{hashlib.sha1(script_name.encode()).hexdigest()[:8]}"
+            write_cmd = f"cat > {script_path} << '{delimiter}'\n{content}\n{delimiter}"
+            await execute_shell_command(write_cmd, cwd=_BROWSER_WORKSPACE)
+        except Exception as e:
+            return _shell_error(f"Failed to write script to {script_path}", e)
+
+        # ── 6. Make executable ────────────────────────────────────────────────
+        try:
+            await execute_shell_command(
+                f"chmod +x {script_path}", cwd=_BROWSER_WORKSPACE
+            )
+        except Exception as e:
+            return _shell_error(f"Failed to chmod {script_path}", e)
+
+        # ── 7. Run ────────────────────────────────────────────────────────────
+        try:
+            result = await execute_shell_command(
+                f"timeout {timeout} bash {script_path}", cwd=_BROWSER_WORKSPACE
+            )
+        except Exception as e:
+            return _shell_error(f"Failed to execute {script_path}", e)
+
+        return {
+            "script_path": script_path,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.exit_code,
+        }
 
     return {
         "get_server_logs": get_server_logs,
         "get_lint_checks": get_lint_checks,
         "run_agent_browser_command": run_agent_browser_command,
+        "run_browser_agent_bash_script": run_browser_agent_bash_script,
         "execute_shell_command": execute_shell_command,
     }
 
@@ -126,7 +262,7 @@ async def _main() -> None:
     # sandbox = await AsyncSandbox.connect(
     #         sandbox_id="i5puwhqrasfuvocwi6rqi", api_key=settings.e2b_api_key
     #     )
-    sandbox_tools = build_sandbox_tools("i5puwhqrasfuvocwi6rqi")
+    sandbox_tools = build_sandbox_tools("i1k8r48s8mln547h1upxa")
     # result = await sandbox.commands.run(
     #     "apt-get install -y "
     #     "libcairo2 libpango-1.0-0 libpangocairo-1.0-0 "
@@ -137,7 +273,10 @@ async def _main() -> None:
     #     "libxss1 libxtst6 fonts-liberation libappindicator3-1 "
     #     "libu2f-udev libvulkan1", user="root"
     # )
-    result =  await sandbox_tools["execute_shell_command"]("pkill -f 'chrome-linux64/chrome'", user="root")
+    result = await sandbox_tools["run_browser_agent_bash_script"](
+        script_content="echo `date`: Hello from the sandbox!\nagent-browser close && echo 'This is stderr' >&2 && exit 0",
+        script_name="test_agent_browser_script",
+    )
     print("result", result)
 
     # print("--- get_server_logs ---")
@@ -154,4 +293,6 @@ async def _main() -> None:
 
 
 if __name__ == "__main__":
+    import asyncio
+
     asyncio.run(_main())

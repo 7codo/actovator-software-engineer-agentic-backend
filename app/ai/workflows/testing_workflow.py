@@ -1,7 +1,7 @@
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, Literal
 
 from app.ai.tools.files_tools import load_agent_browser_commands_ref
 from app.ai.tools.mcp_tools import filtered_tools
@@ -12,19 +12,34 @@ from langchain.chat_models import init_chat_model
 from app.constants import CDP_PORT
 
 
-class TestingOutput(BaseModel):
+class Issue(BaseModel):
+    source: Literal["lint", "server_logs", "browser_console"]  # noqa: F821
+    severity: Literal["error", "warning", "info"]  # noqa: F821
+    description: str
+    recommendation: str
+
+
+class Report(BaseModel):
+    summary: str = Field(
+        description="2–4 sentence plain-English overview of environment health."
+    )
+    issues: list[Issue] = Field(default_factory=list)
+    skipped_steps: list[str] = Field(
+        default_factory=list, description="Step name and reason, if any were skipped."
+    )
+
+
+class QAReport(BaseModel):
     """Structured output for the testing agent."""
 
-    report: str = Field(description="The testing report")
+    report: Report
     route_to_e2e_testing_agent: bool = Field(
-        description="Whether to route the workflow to the E2E testing agent."
+        description="True if frontend changes detected (Next.js pages, UI components, etc.), False for backend-only changes."
     )
 
 
 class State(MessagesState):
     sandbox_id: str | None
-    route_to_e2e: bool
-    report: str
 
 
 def _get_sandbox_id(state: State) -> str:
@@ -41,10 +56,6 @@ def _build_model():
 async def testing_step(state: State, config: RunnableConfig) -> dict:
     messages = state.get("messages")
     sandbox_id = _get_sandbox_id(state)
-
-    tools_result = await filtered_tools(
-        sandbox_id, allowed_tools=["execute_shell_command"]
-    )
     sandbox_tools = build_sandbox_tools(sandbox_id)
 
     agent = create_agent(
@@ -55,17 +66,15 @@ async def testing_step(state: State, config: RunnableConfig) -> dict:
             sandbox_tools["run_agent_browser_command"],
         ],
         system_prompt=TESTING_PROMPT,
-        response_format=TestingOutput,
+        response_format=QAReport,
     )
 
     result = await agent.ainvoke({"messages": messages}, config)
-    output: TestingOutput = result["structured_response"]
+    new_messages = result["messages"]  # it holds the report output as a tool message
 
     return {
-        "messages": messages,
-        "sandbox_id": tools_result.sandbox_id,
-        "report": output.report,
-        "route_to_e2e": output.route_to_e2e_testing_agent,
+        "messages": new_messages,
+        "sandbox_id": sandbox_id,
     }
 
 
@@ -80,20 +89,24 @@ async def e2e_testing_step(state: State, config: RunnableConfig) -> dict:
         user="root",
         background=True,
     )
-
+    await sandbox_tools["execute_shell_command"](
+        f"agent-browser connect {CDP_PORT}", user="root"
+    )
     agent = create_agent(
         model=_build_model(),
         tools=[
             sandbox_tools["run_agent_browser_command"],
+            sandbox_tools["run_browser_agent_bash_script"],
             load_agent_browser_commands_ref,
         ],
         system_prompt=E2E_TESTING_PROMPT,
     )
-
+    print("Running E2E testing agent...")
+    print("input messages", messages)
     result = await agent.ainvoke({"messages": messages}, config)
-
+    print("E2E Testing report:", result)
     await sandbox_tools["execute_shell_command"](
-        "pkill -f 'chrome-linux64/chrome'", user="root"
+        "pkill -f 'chrome-linux64/chrome' && agent-browser close", user="root"
     )
 
     return {"messages": result["messages"], "sandbox_id": sandbox_id}
