@@ -2,89 +2,106 @@ import uuid
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
-
-# from app.ai.agents.coding_agents import build_coding_agent, build_testing_agent
-from app.ai.tools.mcp_tools import filtered_tools
-from app.ai.llm.models import (
-    gemini_3_pro,
-    gemini_flash_latest,
-    minimax_m2_5,
-    gemini_3_flash_preview,
-)
-from app.ai.prompts import EDITING_PROMPT, TESTING_PROMPT
 from langchain.agents import create_agent
-from langchain.chat_models import init_chat_model
+
+from app.ai.tools.mcp_tools import filtered_tools
+from app.ai.tools.sandbox_tools import build_sandbox_tools
+from app.ai.prompts import (
+    EDITING_PROMPT,
+    RESEARCH_PROMPT,
+    MINIT_DOCS_CREATION_PROMPT,
+    TESTING_PROMPT,
+)
+from app.ai.utils import build_model
+from app.constants import DEFAULT_MODEL_ID
 
 
 class State(MessagesState):
     sandbox_id: str | None
+    model_provider: str | None
+    model_id: str | None
 
 
-async def coding_step(state: State):
+def _build_model_from_state(state: State):
+    return build_model(
+        provider=state.get("model_provider", DEFAULT_MODEL_ID),
+        model_id=state.get("model_id", DEFAULT_MODEL_ID),
+    )
+
+
+async def codebase_research_step(state: State):
     messages = state.get("messages")
-    sandboxId = state.get("sandbox_id")
-    print("sandboxId", sandboxId)
-    if not sandboxId:
-        raise Exception("The sandbox id is required!")
+    sandbox_id = state.get("sandbox_id")
+
+    if not sandbox_id:
+        raise ValueError("sandbox_id is required for codebase_research_step")
+
+    model = _build_model_from_state(state)
+
     tools_result = await filtered_tools(
-        sandboxId, excluded_tools=["active_language_server"]
+        sandbox_id,
+        allowed_tools=[
+            "find_referencing_symbols",
+            "find_symbol",
+            "get_symbols_overview",
+            "search_for_pattern",
+            "find_file",
+            "list_dir",
+        ],
     )
-    agent = create_agent(
-        model=gemini_3_flash_preview,
-        system_prompt=EDITING_PROMPT,
+
+    research_agent = create_agent(
+        system_prompt=RESEARCH_PROMPT,
         tools=tools_result.tools,
+        model=model,
     )
-    result = await agent.ainvoke({"messages": messages})
-    messages = result["messages"]
 
-    return {"messages": messages, "sandbox_id": tools_result.sandbox_id}
+    result = await research_agent.ainvoke({"messages": messages})
+
+    return {"messages": result["messages"], "sandbox_id": tools_result.sandbox_id}
 
 
-async def testing_step(state: State):
+async def planner_step(state: State):
     messages = state.get("messages")
-    sandboxId = state.get("sandbox_id")
-    print("sandboxId", sandboxId)
-    if not sandboxId:
-        raise Exception("The sandbox id is required!")
-    tools_result = await filtered_tools(
-        sandboxId, allowed_tools=["execute_shell_command"]
+    model = _build_model_from_state(state)
+    response = await model.ainvoke(messages)
+    return {"messages": [*messages, response], "sandbox_id": state.get("sandbox_id")}
+
+
+async def mini_docs_creation_step(state: State):
+    messages = state.get("messages")
+    sandbox_id = state.get("sandbox_id")
+
+    if not sandbox_id:
+        raise ValueError("sandbox_id is required for mini_docs_creation_step")
+
+    model = _build_model_from_state(state)
+    sandbox_tools = build_sandbox_tools(sandbox_id)
+
+    docs_agent = create_agent(
+        system_prompt=MINIT_DOCS_CREATION_PROMPT,
+        tools=[sandbox_tools["search_changelogs"]],
+        model=model,
     )
-    print("TESTING_PROMPT", TESTING_PROMPT[:30])
-    agent = create_agent(
-        model=gemini_3_flash_preview,
-        system_prompt=TESTING_PROMPT,
-        tools=tools_result.tools,
-    )
-    result = await agent.ainvoke({"messages": messages})
-    messages = result["messages"]
 
-    return {"messages": messages, "sandbox_id": tools_result.sandbox_id}
+    result = await docs_agent.ainvoke({"messages": messages})
+
+    return {"messages": result["messages"], "sandbox_id": sandbox_id}
 
 
+
+
+# Graph definition
 coding_workflow = StateGraph(State)
-# coding_workflow.add_node(coding_step)
-coding_workflow.add_node(testing_step)
 
-coding_workflow.add_edge(START, "testing_step")
-# coding_workflow.add_edge("coding_step", "testing_step")
-# coding_workflow.add_edge("testing_step", END)
-coding_workflow.add_edge("testing_step", END)
-# workflow.add_edge("vision_process", END)
+coding_workflow.add_node("codebase_research_step", codebase_research_step)
+coding_workflow.add_node("planner_step", planner_step)
+coding_workflow.add_node("mini_docs_creation_step", mini_docs_creation_step)
+
+coding_workflow.add_edge(START, "codebase_research_step")
+coding_workflow.add_edge("codebase_research_step", "planner_step")
+coding_workflow.add_edge("planner_step", END)
 
 checkpointer = InMemorySaver()
-
 config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 coding_graph = coding_workflow.compile(checkpointer=checkpointer)
-
-
-# if __name__ == "__main__":
-#     import asyncio
-#     from app.utils.dev_utils import interactive_graph
-# from app.utils.dev_utils import interactive_graph
-
-#     # result = asyncio.run(sitemap_retriever("https://vercel.com", "vercel-blob|storage"))
-#     # print(len(result))
-#     asyncio.run(interactive_graph(graph))
-
-#     # asyncio.run(interactive_graph(graph,is_use_google_models=True))
-#     # user stories: .serena\architecture\file-upload-system\prd.json

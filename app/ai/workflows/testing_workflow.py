@@ -8,7 +8,7 @@ from app.ai.tools.mcp_tools import filtered_tools
 from app.ai.prompts import E2E_TESTING_PROMPT, TESTING_PROMPT
 from langchain.agents import create_agent
 from app.ai.tools.sandbox_tools import build_sandbox_tools
-from langchain.chat_models import init_chat_model
+from app.ai.utils import build_model
 from app.constants import CDP_PORT
 
 
@@ -49,8 +49,6 @@ def _get_sandbox_id(state: State) -> str:
     return sandbox_id
 
 
-def _build_model():
-    return init_chat_model("google_genai:gemini-3-flash-preview")
 
 
 async def testing_step(state: State, config: RunnableConfig) -> dict:
@@ -59,7 +57,7 @@ async def testing_step(state: State, config: RunnableConfig) -> dict:
     sandbox_tools = build_sandbox_tools(sandbox_id)
 
     agent = create_agent(
-        model=_build_model(),
+        model=build_model(provider="google_genai", model_id="gemini-3-flash-preview"),
         tools=[
             sandbox_tools["get_lint_checks"],
             sandbox_tools["get_server_logs"],
@@ -93,7 +91,7 @@ async def e2e_testing_step(state: State, config: RunnableConfig) -> dict:
         f"agent-browser connect {CDP_PORT}", user="root"
     )
     agent = create_agent(
-        model=_build_model(),
+        model=build_model(provider="google_genai", model_id="gemini-3-flash-preview"),
         tools=[
             sandbox_tools["run_agent_browser_command"],
             sandbox_tools["run_browser_agent_bash_script"],

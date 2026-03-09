@@ -9,6 +9,13 @@ from langchain_core.tools import BaseTool
 
 from app.constants import PROJECT_PATH
 from app.core.config import settings
+from app.utils.changelogs_retriever_utils import (
+    fetch_release_by_ref,
+    format_release,
+    parse_repo_url,
+    fetch_all_releases,
+    filter_releases_between,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -249,12 +256,71 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             "exit_code": result.exit_code,
         }
 
+    @tool
+    async def search_changelogs(
+        repo_url: str,
+        known_version: str,
+        keywords: list[str],
+        package_name: str,
+    ) -> str:
+        """
+        Search changelog lines containing any of the keywords across releases after the known version (exclusive) up to the currently installed version (inclusive).
+
+        Args:
+            repo_url (str): The GitHub repository URL.
+            known_version (str): The fully known version (exclusive; releases strictly after this version are searched), must be a full version string like "16.1.3"
+            package_name (str): The package name (may differ from the repo name).
+            keywords (list[str]): List of keywords to filter lines in release bodies.
+
+        Returns:
+            str: Formatted string with all matching changelog lines within the version range.
+        """
+        try:
+            new_version_result = await execute_shell_command(
+                f'grep \'"{package_name}"\' package.json | sed \'s/.*: "\\(.*\\)".*/\\1/\' | tr -d \'^~\'',
+                cwd=PROJECT_PATH,
+            )
+            new_version = new_version_result.stdout.strip()
+        except Exception as e:
+            return f"Error retrieving version for package '{package_name}': {e}"
+
+        try:
+            owner, repo = parse_repo_url(repo_url)
+            releases = fetch_all_releases(owner, repo)
+            matched_releases = filter_releases_between(releases, known_version, new_version)
+        except Exception as e:
+            return f"Error fetching releases or filtering by version: {e}"
+
+        aggregate_results = []
+
+        for keyword in keywords:
+            blocks = []
+            try:
+                total = len(matched_releases)
+                for idx, release in enumerate(matched_releases, start=1):
+                    block = format_release(release, index=idx, total=total, query=keyword)
+                    if block:
+                        blocks.append(block)
+                if blocks:
+                    aggregate_results.append(f"### Results for '{keyword}':\n" + "\n".join(blocks))
+                else:
+                    aggregate_results.append(
+                        f"No matches for '{keyword}' in releases between {known_version} and {new_version}."
+                    )
+            except Exception as e:
+                aggregate_results.append(
+                    f"Error while processing keyword '{keyword}': {e}"
+                )
+
+        return "\n\n".join(aggregate_results)
+
     return {
         "get_server_logs": get_server_logs,
         "get_lint_checks": get_lint_checks,
         "run_agent_browser_command": run_agent_browser_command,
         "run_browser_agent_bash_script": run_browser_agent_bash_script,
         "execute_shell_command": execute_shell_command,
+        "search_changelogs": search_changelogs,
     }
 
 
@@ -273,9 +339,8 @@ async def _main() -> None:
     #     "libxss1 libxtst6 fonts-liberation libappindicator3-1 "
     #     "libu2f-udev libvulkan1", user="root"
     # )
-    result = await sandbox_tools["run_browser_agent_bash_script"](
-        script_content="echo `date`: Hello from the sandbox!\nagent-browser close && echo 'This is stderr' >&2 && exit 0",
-        script_name="test_agent_browser_script",
+    result = await sandbox_tools["search_changelogs"](
+        repo_url="https://github.com/vercel/next.js", known_version="15.1.0", search="middleware", package_name="next"
     )
     print("result", result)
 
