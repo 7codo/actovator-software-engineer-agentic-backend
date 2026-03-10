@@ -12,7 +12,7 @@ relevant changes that occurred **after the last version you have complete,
 verified knowledge of**, up to the version currently installed in the project.
 
 You will do this by:
-- Extracting a complete keyword list from all provided inputs (plan, user task,
+- Extracting a complete keyword list from all provided inputs (plan,
   codebase research report)
 - Calling the `search_changelog_lines_after_version` tool once per package
 - Presenting findings as a structured mini-doc
