@@ -44,6 +44,9 @@ add_langgraph_fastapi_endpoint(
         name="coding_agent",
         description="",
         graph=coding_graph,
+        config={
+            "recursion_limit": 100,
+        },
     ),
     path="/coding",
 )

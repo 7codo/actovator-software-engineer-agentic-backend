@@ -106,16 +106,15 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
 
     @tool
     async def get_server_logs(lines_count: int = 25) -> str:
-        """Fetch Next.js development server logs from the sandbox.
-
-        Under the hood, it runs: "pm2 logs project --raw --time --lines {lines_count} --nostream"
+        """Query the agent's training knowledge for the last fully known version of a package.
 
         Args:
-            lines_count: Number of log lines to retrieve (default 25).
+            package: The name of the package to query (e.g. "langchain", "fastapi").
 
         Returns:
-            Filtered server log output, or an error string on failure.
+            The last known version string in x.x.x format.
         """
+
         try:
             sandbox = await _get_sandbox()
             result = await sandbox.commands.run(
@@ -267,77 +266,12 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             "exit_code": result.exit_code,
         }
 
-    @tool
-    async def search_changelogs(
-        repo_url: str,
-        known_version: str,
-        keywords: list[str],
-        package_name: str,
-    ) -> str:
-        """
-        Search changelog lines containing any of the keywords across releases after the known version (exclusive) up to the currently installed version (inclusive).
-
-        Args:
-            repo_url (str): The GitHub repository URL.
-            known_version (str): The fully known version (exclusive; releases strictly after this version are searched), must be a full version string like "16.1.3"
-            package_name (str): The package name (may differ from the repo name).
-            keywords (list[str]): List of keywords to filter lines in release bodies.
-
-        Returns:
-            str: Formatted string with all matching changelog lines within the version range.
-        """
-        try:
-            new_version_result = await execute_shell_command(
-                f"grep '\"{package_name}\"' package.json | sed 's/.*: \"\\(.*\\)\".*/\\1/' | tr -d '^~'",
-                cwd=PROJECT_PATH,
-            )
-            new_version = new_version_result.stdout.strip()
-        except Exception as e:
-            return f"Error retrieving version for package '{package_name}': {e}"
-
-        try:
-            owner, repo = parse_repo_url(repo_url)
-            releases = fetch_all_releases(owner, repo)
-            matched_releases = filter_releases_between(
-                releases, known_version, new_version
-            )
-        except Exception as e:
-            return f"Error fetching releases or filtering by version: {e}"
-
-        aggregate_results = []
-
-        for keyword in keywords:
-            blocks = []
-            try:
-                total = len(matched_releases)
-                for idx, release in enumerate(matched_releases, start=1):
-                    block = format_release(
-                        release, index=idx, total=total, query=keyword
-                    )
-                    if block:
-                        blocks.append(block)
-                if blocks:
-                    aggregate_results.append(
-                        f"### Results for '{keyword}':\n" + "\n".join(blocks)
-                    )
-                else:
-                    aggregate_results.append(
-                        f"No matches for '{keyword}' in releases between {known_version} and {new_version}."
-                    )
-            except Exception as e:
-                aggregate_results.append(
-                    f"Error while processing keyword '{keyword}': {e}"
-                )
-
-        return "\n\n".join(aggregate_results)
-
     return {
         "get_server_logs": get_server_logs,
         "get_lint_checks": get_lint_checks,
         "run_agent_browser_command": run_agent_browser_command,
         "run_browser_agent_bash_script": run_browser_agent_bash_script,
         "execute_shell_command": execute_shell_command,
-        "search_changelogs": search_changelogs,
         "read_file": read_file,
     }
 
