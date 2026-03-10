@@ -70,7 +70,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             sandbox_id=sdbx_id, api_key=settings.e2b_api_key
         )
 
-    # ── Internal primitive (not exposed as a @tool) ─────────────────────────
+    # not exposed as a @tool ─────────────────────────
 
     async def execute_shell_command(
         command: str,
@@ -89,6 +89,17 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
                 f"execute_shell_command failed.\n"
                 f"Command: {command}\n"
                 f"Reason: {type(e).__name__}: {e}"
+            ) from e
+
+    async def read_file(path: str) -> str:
+        """Read a file's content from the sandbox."""
+        try:
+            sandbox = await _get_sandbox()
+            file_content = await sandbox.files.read(path)
+            return file_content
+        except Exception as e:
+            raise RuntimeError(
+                f"read_file failed.\nReason: {type(e).__name__}: {e}"
             ) from e
 
     # ── Public tools ─────────────────────────────────────────────────────────
@@ -277,7 +288,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         """
         try:
             new_version_result = await execute_shell_command(
-                f'grep \'"{package_name}"\' package.json | sed \'s/.*: "\\(.*\\)".*/\\1/\' | tr -d \'^~\'',
+                f"grep '\"{package_name}\"' package.json | sed 's/.*: \"\\(.*\\)\".*/\\1/' | tr -d '^~'",
                 cwd=PROJECT_PATH,
             )
             new_version = new_version_result.stdout.strip()
@@ -287,7 +298,9 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         try:
             owner, repo = parse_repo_url(repo_url)
             releases = fetch_all_releases(owner, repo)
-            matched_releases = filter_releases_between(releases, known_version, new_version)
+            matched_releases = filter_releases_between(
+                releases, known_version, new_version
+            )
         except Exception as e:
             return f"Error fetching releases or filtering by version: {e}"
 
@@ -298,11 +311,15 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             try:
                 total = len(matched_releases)
                 for idx, release in enumerate(matched_releases, start=1):
-                    block = format_release(release, index=idx, total=total, query=keyword)
+                    block = format_release(
+                        release, index=idx, total=total, query=keyword
+                    )
                     if block:
                         blocks.append(block)
                 if blocks:
-                    aggregate_results.append(f"### Results for '{keyword}':\n" + "\n".join(blocks))
+                    aggregate_results.append(
+                        f"### Results for '{keyword}':\n" + "\n".join(blocks)
+                    )
                 else:
                     aggregate_results.append(
                         f"No matches for '{keyword}' in releases between {known_version} and {new_version}."
@@ -321,6 +338,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         "run_browser_agent_bash_script": run_browser_agent_bash_script,
         "execute_shell_command": execute_shell_command,
         "search_changelogs": search_changelogs,
+        "read_file": read_file,
     }
 
 
@@ -339,9 +357,13 @@ async def _main() -> None:
     #     "libxss1 libxtst6 fonts-liberation libappindicator3-1 "
     #     "libu2f-udev libvulkan1", user="root"
     # )
-    result = await sandbox_tools["search_changelogs"](
-        repo_url="https://github.com/vercel/next.js", known_version="15.1.0", search="middleware", package_name="next"
-    )
+    # result = await sandbox_tools["search_changelogs"](
+    #     repo_url="https://github.com/vercel/next.js",
+    #     known_version="15.1.0",
+    #     search="middleware",
+    #     package_name="next",
+    # )
+    result = await sandbox_tools["read_file"](path=f"{PROJECT_PATH}/package.json")
     print("result", result)
 
     # print("--- get_server_logs ---")

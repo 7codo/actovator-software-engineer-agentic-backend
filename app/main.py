@@ -43,7 +43,7 @@ add_langgraph_fastapi_endpoint(
     agent=LangGraphAGUIAgent(
         name="coding_agent",
         description="",
-        graph=testing_graph,
+        graph=coding_graph,
     ),
     path="/coding",
 )
