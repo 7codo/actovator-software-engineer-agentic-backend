@@ -99,7 +99,7 @@ async def filtered_tools(
     return Result(tools=filtered_tools, sandbox_id=sandbox_result.sandbox_id)
 
 async def execute_specific_tool(
-    sandbox_id: str, tool_name: str, input: dict | None = None
+    sandbox_id: str, tool_name: str, input: dict | None = None, config: dict | None = None, 
 ) -> dict:
     """
     Finds and executes a specific tool by name within the sandbox.
@@ -109,11 +109,11 @@ async def execute_specific_tool(
 
     sandbox_result = await get_or_create_tools(sandbox_id)
 
-    tool = next((t for t in sandbox_result["tools"] if t.name == tool_name), None)
+    tool:BaseTool | None = next((t for t in sandbox_result["tools"] if t.name == tool_name), None)
     if tool is None:
         raise ValueError(f"Tool '{tool_name}' not found.")
 
-    result = await tool.ainvoke(input)
+    result = await tool.ainvoke(input, config)
     print(result)
     print("*" * 25)
 

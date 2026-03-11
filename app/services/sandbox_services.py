@@ -28,14 +28,33 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
         },
     )
     if github_token:
-        await sandbox.commands.run(
-            'git config --global user.email "contact@actovator.com"'
+        print("[DEBUG] Setting global git user email...")
+        result = await sandbox.commands.run(
+            'git config --global user.email "contact@actovator.com"', user="root"
         )
-        await sandbox.commands.run('git config --global user.name "actovator"')
-        await sandbox.commands.run("git config --global credential.helper store")
-        await sandbox.commands.run(
-            'echo "https://oauth2:$GITHUB_TOKEN@github.com" > ~/.git-credentials'
+        print("[DEBUG] Result:", result)
+
+        print("[DEBUG] Setting global git user name...")
+        result = await sandbox.commands.run('git config --global user.name "actovator"', user="root")
+        print("[DEBUG] Result:", result)
+
+        print("[DEBUG] Setting global git credential.helper to store...")
+        result = await sandbox.commands.run("git config --global credential.helper store")
+        print("[DEBUG] Result:", result)
+
+        print("[DEBUG] Adding github credentials to ~/.git-credentials ...")
+        result = await sandbox.commands.run(
+            'echo "https://oauth2:$GITHUB_TOKEN@github.com" > ~/.git-credentials', user="root", 
         )
+        print("[DEBUG] Result:", result)
+
+        print("[DEBUG] Setting git safe.directory for all directories...")
+        result = await sandbox.commands.run(
+            "git config --global --add safe.directory '*'", user="root"
+        )
+        print("[DEBUG] Result:", result)
+
+        
     return sandbox.sandbox_id
 
 

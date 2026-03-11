@@ -280,7 +280,7 @@ async def _main() -> None:
     # sandbox = await AsyncSandbox.connect(
     #         sandbox_id="i5puwhqrasfuvocwi6rqi", api_key=settings.e2b_api_key
     #     )
-    sandbox_tools = build_sandbox_tools("i1k8r48s8mln547h1upxa")
+    sandbox_tools = build_sandbox_tools("i9na59ivfvvyq3ha8qsct") # i9na59ivfvvyq3ha8qsct created directly
     # result = await sandbox.commands.run(
     #     "apt-get install -y "
     #     "libcairo2 libpango-1.0-0 libpangocairo-1.0-0 "
@@ -297,8 +297,8 @@ async def _main() -> None:
     #     search="middleware",
     #     package_name="next",
     # )
-    result = await sandbox_tools["read_file"](path=f"{PROJECT_PATH}/package.json")
-    print("result", result)
+    result = await sandbox_tools["execute_shell_command"](command=f"git remote -v", cwd=PROJECT_PATH)
+    print("result", result.stdout)
 
     # print("--- get_server_logs ---")
     # logs: Any = await sandbox_tools["get_server_logs"].ainvoke({"lines_count": 25})
