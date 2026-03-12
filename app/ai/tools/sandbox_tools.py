@@ -280,7 +280,9 @@ async def _main() -> None:
     # sandbox = await AsyncSandbox.connect(
     #         sandbox_id="i5puwhqrasfuvocwi6rqi", api_key=settings.e2b_api_key
     #     )
-    sandbox_tools = build_sandbox_tools("i9na59ivfvvyq3ha8qsct") # i9na59ivfvvyq3ha8qsct created directly
+    sandbox_tools = build_sandbox_tools(
+        "iigdxjs9fklw96v31hqhe"
+    )  # i9na59ivfvvyq3ha8qsct created directly
     # result = await sandbox.commands.run(
     #     "apt-get install -y "
     #     "libcairo2 libpango-1.0-0 libpangocairo-1.0-0 "
@@ -297,8 +299,10 @@ async def _main() -> None:
     #     search="middleware",
     #     package_name="next",
     # )
-    result = await sandbox_tools["execute_shell_command"](command=f"git remote -v", cwd=PROJECT_PATH)
-    print("result", result.stdout)
+    result = await sandbox_tools["execute_shell_command"](
+        command="gh auth status", cwd=PROJECT_PATH
+    )
+    print("result", result)
 
     # print("--- get_server_logs ---")
     # logs: Any = await sandbox_tools["get_server_logs"].ainvoke({"lines_count": 25})

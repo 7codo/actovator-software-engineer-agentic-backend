@@ -87,7 +87,7 @@ Format every question with lettered options so users can reply with shorthand (e
 
 ### Step 4 — Generate the PRD
 
-Output a Markdown file at `features/[feature-name]/prd.md` (kebab-case filename).
+Output a Markdown file at `.actovator/features/[feature-name]/prd.md` (kebab-case filename).
 
 Start every PRD with this frontmatter block:
 ```

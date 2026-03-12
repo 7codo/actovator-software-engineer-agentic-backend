@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver # Commented out if not used directly here
-from app.ai.workflows import coding_graph, testing_graph
+from app.ai.workflows import coding_graph, testing_graph, architecture_graph
 from app.api.v1.routers import sandbox_router
 from logging import Logger
 from sensai.util import logging
@@ -43,7 +43,7 @@ add_langgraph_fastapi_endpoint(
     agent=LangGraphAGUIAgent(
         name="coding_agent",
         description="",
-        graph=coding_graph,
+        graph=architecture_graph,
         config={
             "recursion_limit": 100,
         },

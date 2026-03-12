@@ -5,6 +5,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 from sensai.util import logging
 from app.constants import PROJECT_PATH
+from copilotkit.langgraph import RunnableConfig
 
 log = logging.getLogger(__name__)
 
@@ -52,15 +53,14 @@ async def get_or_create_tools(sandbox_id: str) -> Result:
     """
     Retrieves tools from cache or creates a new sandbox connection.
     """
+    sandbox = await AsyncSandbox.connect(  # Always reactive the sandbox
+        sandbox_id=sandbox_id, api_key=settings.e2b_api_key
+    )
     if sandbox_id and sandbox_id in _tool_cache:
         return _tool_cache[sandbox_id]
 
     log.info(f"Initializing MCP connection for sandbox {sandbox_id}")
     log.debug(f"sandbox_id: {sandbox_id}")
-
-    sandbox = await AsyncSandbox.connect(
-        sandbox_id=sandbox_id, api_key=settings.e2b_api_key
-    )
 
     mcp_url = sandbox.get_mcp_url()
     mcp_token = await sandbox.get_mcp_token()
@@ -91,15 +91,19 @@ async def filtered_tools(
     excluded = set(excluded_tools or [])
 
     filtered_tools = [
-        tool for tool in sandbox_result.tools
-        if (not allowed or tool.name in allowed)
-        and tool.name not in excluded
+        tool
+        for tool in sandbox_result.tools
+        if (not allowed or tool.name in allowed) and tool.name not in excluded
     ]
 
     return Result(tools=filtered_tools, sandbox_id=sandbox_result.sandbox_id)
 
+
 async def execute_specific_tool(
-    sandbox_id: str, tool_name: str, input: dict | None = None, config: dict | None = None, 
+    sandbox_id: str,
+    tool_name: str,
+    input: dict | None = None,
+    config: RunnableConfig | None = None,
 ) -> dict:
     """
     Finds and executes a specific tool by name within the sandbox.
@@ -109,48 +113,39 @@ async def execute_specific_tool(
 
     sandbox_result = await get_or_create_tools(sandbox_id)
 
-    tool:BaseTool | None = next((t for t in sandbox_result["tools"] if t.name == tool_name), None)
+    tool: BaseTool | None = next(
+        (t for t in sandbox_result.tools if t.name == tool_name), None
+    )
     if tool is None:
         raise ValueError(f"Tool '{tool_name}' not found.")
 
-    result = await tool.ainvoke(input, config)
+    isolated_config = RunnableConfig(callbacks=[])
+
+    result = await tool.ainvoke(input, isolated_config)
     print(result)
     print("*" * 25)
 
     # Added safe access check for result parsing.
     # If the result is a list containing text, we extract it directly into the 'result' field.
     if isinstance(result, list) and result and "text" in result[0]:
-        return {"result": result[0]["text"], "sandbox_id": sandbox_result["sandbox_id"]}
+        return {"result": result[0]["text"], "sandbox_id": sandbox_result.sandbox_id}
 
-    return {"result": result, "sandbox_id": sandbox_result["sandbox_id"]}
+    return {"result": result, "sandbox_id": sandbox_result.sandbox_id}
 
 
-def debug_mcp():
-    sandbox_id = "iditam50fvm0duj0v1rpy"
-    sandbox = Sandbox.connect(sandbox_id=sandbox_id, api_key=settings.e2b_api_key)
-    dirname = PROJECT_PATH
-    # handle = sandbox.files.watch_dir(dirname)
-    # Trigger file write event
-    # sandbox.files.write(f"{dirname}/test2/test2", "hello")
-
-    # Retrieve the latest new events since the last `get_new_events()` call
-    # events = handle.get_new_events()
-    # for event in events:
-    #     print(event)
-    mcp_url = sandbox.get_mcp_url()
-    mcp_token = sandbox.get_mcp_token()
-    print(mcp_url)
-    print(mcp_token)
-    # client = await _create_mcp_client(mcp_url=mcp_url, mcp_token=mcp_token)
-
-    # tools = await client.get_tools()
-    # print(len(tools))
+async def debug_mcp():
+    sandbox_id = "iigdxjs9fklw96v31hqhe"
+    tools = await filtered_tools(
+        sandbox_id,
+        allowed_tools=["read_file", "create_text_file", "replace_content"],
+    )
+    print(len(tools.tools))
 
 
 if __name__ == "__main__":
     import asyncio
 
-    debug_mcp()
-    # result = asyncio.run(debug_mcp())
+    # debug_mcp()
+    result = asyncio.run(debug_mcp())
 
     # bunx @modelcontextprotocol/inspector --transport http --url https://50005-iyehv27vkb9mb0fxcalqo.e2b.app/mcp --header "Authorization: Bearer cce8aad9-f416-438f-b0d5-e0df3d41f59f"

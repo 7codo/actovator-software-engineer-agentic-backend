@@ -23,12 +23,12 @@ Take a PRD (markdown file or text) and convert it to `user_stories.json` with pr
 ## Output Format
 
 ```json
-{
+{{
   "project": "[Project Name]",
   "branchName": "[feature-name-kebab-case]",
   "description": "[Feature description from PRD title/intro]",
   "userStories": [
-    {
+    {{
       "id": "US-001",
       "title": "[Story title]",
       "description": "As a [user], I want [feature] so that [benefit]",
@@ -39,9 +39,9 @@ Take a PRD (markdown file or text) and convert it to `user_stories.json` with pr
       "priority": 1,
       "passes": false,
       "notes": ""
-    }
+    }}
   ]
-}
+}}
 ```
 
 ---
@@ -148,12 +148,12 @@ Add ability to mark tasks with different statuses.
 
 **Output user_stories.json:**
 ```json
-{
+{{
   "project": "TaskApp",
   "branchName": "task-status",
   "description": "Task Status Feature - Track task progress with status indicators",
   "userStories": [
-    {
+    {{
       "id": "US-001",
       "title": "Add status field to tasks table",
       "description": "As a developer, I need to store task status in the database.",
@@ -164,8 +164,8 @@ Add ability to mark tasks with different statuses.
       "priority": 1,
       "passes": false,
       "notes": ""
-    },
-    {
+    }},
+    {{
       "id": "US-002",
       "title": "Display status badge on task cards",
       "description": "As a user, I want to see task status at a glance.",
@@ -176,8 +176,8 @@ Add ability to mark tasks with different statuses.
       "priority": 2,
       "passes": false,
       "notes": ""
-    },
-    {
+    }},
+    {{
       "id": "US-003",
       "title": "Add status toggle to task list rows",
       "description": "As a user, I want to change task status directly from the list.",
@@ -189,8 +189,8 @@ Add ability to mark tasks with different statuses.
       "priority": 3,
       "passes": false,
       "notes": ""
-    },
-    {
+    }},
+    {{
       "id": "US-004",
       "title": "Filter tasks by status",
       "description": "As a user, I want to filter the list to see only certain statuses.",
@@ -201,9 +201,9 @@ Add ability to mark tasks with different statuses.
       "priority": 4,
       "passes": false,
       "notes": ""
-    }
+    }}
   ]
-}
+}}
 ```
 
 ---
