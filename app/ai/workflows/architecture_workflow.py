@@ -9,7 +9,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 
 from copilotkit.langgraph import RunnableConfig, copilotkit_customize_config
 
-from app.ai.prompts import ARCHITECTURE_PROMPT, PRD_GENERATOR_PROMPT, TECH_STACK_PROMPT
+from app.ai.prompts import ARCHITECTURE_PROMPT, PRD_GENERATOR_PROMPT, TECH_STACK_PROMPT, USER_STORIES_GENERATOR_PROMPT
 from app.ai.tools.git_tools import build_git_tools
 from app.ai.tools.mcp_tools import execute_specific_tool, filtered_tools
 from app.ai.utils import build_model
@@ -25,7 +25,7 @@ class State(MessagesState):
     sandbox_id: str | None
     model_provider: str | None
     model_id: str | None
-    feature_path: str | None
+    prd_path: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +45,6 @@ def _require_sandbox_id(state: State, step_name: str) -> str:
         raise ValueError(f"sandbox_id is required for {step_name}")
     return sandbox_id
 
-
-def _last_tool_message(messages: list) -> ToolMessage | None:
-    tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
-    return tool_messages[-1] if tool_messages else None
 
 async def _get_available_features_metadata(config: RunnableConfig):
     silent_config = copilotkit_customize_config(
@@ -81,43 +77,34 @@ async def init_step(state: State) -> Dict[str, Any]:
     return {"sandbox_id": state.get("sandbox_id")}
 
 
-# async def architecture_step(state: State) -> Dict[str, Any]:
-#     sandbox_id = _require_sandbox_id(state, "architecture_step")
-#     git_tools = build_git_tools(sandbox_id)
-#     model = _build_model_from_state(state)
-#     available_features = _get_available_features_metadata()
-#     system_message = PromptTemplate.from_template(ARCHITECTURE_PROMPT).format(
-#         available_feature=json.dumps(available_features),
-#     )
-   
-#     response = await model.ainvoke({"messages": [system_message, *state["messages"]]})
-#     return {"messages": [*state["messages"], response]}
-
-
 async def prd_generator_step(state: State, config: RunnableConfig) -> Dict[str, Any]:
-    
-    sandbox_id = _require_sandbox_id(state, "architecture_step")
+    _require_sandbox_id(state, "prd_generator_step")
+
     model = _build_model_from_state(state)
     tools = await filtered_tools(
         state.sandbox_id,
         allowed_tools=["read_file", "create_text_file", "replace_content"],
     )
-    available_features = _get_available_features_metadata(config)
+
+    
+    available_features = await _get_available_features_metadata(config)
+    print("available_features", available_features)
     system_message = PromptTemplate.from_template(PRD_GENERATOR_PROMPT).format(
         available_feature=json.dumps(available_features),
     )
+    print("system_message", system_message[:50])
     agent = create_agent(model=model, system_prompt=system_message, tools=tools)
     result = await agent.ainvoke({"messages": state["messages"]}, config)
-
     messages = result["messages"]
-    last_tool = _last_tool_message(messages)
-    feature_path = (
-        last_tool.artifact.get("relative_path")
-        if last_tool and last_tool.name in {"create_text_file", "replace_content"}
-        else state.get("feature_path")
-    )
 
-    return {"messages": messages, "feature_path": feature_path}
+    
+    prd_path = None
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage) and msg.name == "assign_prd_saving_completed":
+            prd_path = msg.artifact.get("relative_path") if hasattr(msg, "artifact") else None
+            break
+    print("prd_path", prd_path)
+    return {"messages": messages, "prd_path": prd_path}
 
 
 async def tech_stack_expander_step(state: State, config: RunnableConfig) -> Dict[str, Any]:
@@ -128,26 +115,58 @@ async def tech_stack_expander_step(state: State, config: RunnableConfig) -> Dict
     packages = await execute_specific_tool(
         "read_file", {"relative_path": "package.json"}, silent_config
     )
-    print('packages', packages)
+    print("packages", packages)
     feature_prd = await execute_specific_tool(
-        "read_file", {"relative_path": state.get("feature_path")}, silent_config
+        "read_file", {"relative_path": state.get("prd_path")}, silent_config
     )
-    print('feature_prd', feature_prd)
+    print("feature_prd", feature_prd)
     tech_stack = await execute_specific_tool(
         "read_file",
         {"relative_path": ".actovator/features/tech_stack.json"},
         silent_config,
     )
-    print('tech_stack', tech_stack)
+    print("tech_stack", tech_stack)
+
+    model = _build_model_from_state(state)
+    tools = await filtered_tools(
+        state.sandbox_id,
+        allowed_tools=["replace_content"],
+    )
+    system_message = PromptTemplate.from_template(TECH_STACK_PROMPT).format(
+        tech_stack=tech_stack["result"],
+        prd=feature_prd["result"],
+        packages=packages["result"],
+    )
+    agent = create_agent(model=model, system_prompt=system_message, tools=tools)
+    result = await agent.ainvoke({"messages": state["messages"]}, config)
+    return {"messages": result["messages"]}
+
+
+async def user_stories_generator_step(state: State, config: RunnableConfig) -> Dict[str, Any]:
+    silent_config = copilotkit_customize_config(
+        config, emit_messages=False, emit_tool_calls=False
+    )
+    prd_file_path = state.get("prd_path")
+    prd_content = await execute_specific_tool(
+        "read_file", {"relative_path": prd_file_path}, silent_config
+    )
+    print("prd_content", prd_content)
+    tech_stack = await execute_specific_tool(
+        "read_file",
+        {"relative_path": ".actovator/features/tech_stack.json"},
+        silent_config,
+    )
+    print("tech_stack", tech_stack)
+
     model = _build_model_from_state(state)
     tools = await filtered_tools(
         state.sandbox_id,
         allowed_tools=["read_file", "create_text_file", "replace_content"],
     )
-    system_message = PromptTemplate.from_template(TECH_STACK_PROMPT).format(
-        tech_stack=tech_stack["result"],
-        feature_prd=feature_prd["result"],
-        packages=packages["result"],
+    system_message = PromptTemplate.from_template(USER_STORIES_GENERATOR_PROMPT).format(
+        prd=prd_content,
+        tech_stack=tech_stack,
+        prd_file_path=prd_file_path,
     )
     agent = create_agent(model=model, system_prompt=system_message, tools=tools)
     result = await agent.ainvoke({"messages": state["messages"]}, config)
@@ -158,13 +177,12 @@ async def tech_stack_expander_step(state: State, config: RunnableConfig) -> Dict
 # Routing
 # ---------------------------------------------------------------------------
 
-# def route_to(state: State,  config: RunnableConfig) -> Literal["tech_stack_expander_step", "__end__", "prd_generator_step"]:
-#     last_tool = _last_tool_message(state.get("messages", []))
-    
-    
-#     if last_tool and last_tool.name in {"create_text_file", "replace_content"}:
-#         return "tech_stack_expander_step"
-#     return END
+def route_to(state: State) -> Literal["tech_stack_expander_step", "__end__"]:
+    # FIX: `is_instance` → `isinstance`, added missing `:`, fixed attribute access
+    last_msg = state.get("messages", [])[-1] if state.get("messages") else None
+    if isinstance(last_msg, ToolMessage) and last_msg.name == "assign_prd_saving_completed":
+        return "tech_stack_expander_step"
+    return END
 
 
 # ---------------------------------------------------------------------------
@@ -175,11 +193,11 @@ coding_workflow = StateGraph(State)
 
 coding_workflow.add_node("init_step", init_step)
 coding_workflow.add_node("prd_generator_step", prd_generator_step)
-# coding_workflow.add_node("tech_stack_expander_step", tech_stack_expander_step)
+# coding_workflow.add_node("tech_stack_expander_step", tech_stack_expander_step)  # FIX: uncommented to match routing
 
 coding_workflow.add_edge(START, "init_step")
 coding_workflow.add_edge("init_step", "prd_generator_step")
-# coding_workflow.add_conditional_edges("prd_generator_step", route_to)
-coding_workflow.add_edge("prd_generator_step", END)
+# coding_workflow.add_conditional_edges("prd_generator_step", route_to)  # FIX: removed duplicate unconditional edge
+# coding_workflow.add_edge("tech_stack_expander_step", END)
 
 coding_graph = coding_workflow.compile(checkpointer=InMemorySaver())

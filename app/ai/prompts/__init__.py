@@ -8,6 +8,7 @@ FIX_PLANNER_PROMPT: str = read_file_from_init("fix_planner_prompt.md", "app.ai.p
 ARCHITECTURE_PROMPT: str = read_file_from_init("architecture_prompt.md", "app.ai.prompts")
 TECH_STACK_PROMPT: str = read_file_from_init("tech_stack_prompt.md", "app.ai.prompts")
 PRD_GENERATOR_PROMPT: str = read_file_from_init("prd_generator_prompt.md", "app.ai.prompts")
+USER_STORIES_GENERATOR_PROMPT: str = read_file_from_init("user_stories_generator_prompt.md", "app.ai.prompts")
 MINI_DOCS_CREATION_PROMPT: str = read_file_from_init(
     "mini_docs_creation_prompt.md", "app.ai.prompts"
 )
@@ -23,6 +24,7 @@ __all__ = [
     "ARCHITECTURE_PROMPT",
     "PRD_GENERATOR_PROMPT",
     "TECH_STACK_PROMPT",
+    "USER_STORIES_GENERATOR_PROMPT",
 ]
 
 if __name__ == "__main__":

@@ -73,6 +73,18 @@ def run_init_next_script_cmd():
         "rm .actovator/init-next.sh"
     ]
 
+def write_tech_stack_json_cmd():
+    # Create the features dir if missing and write the tech stack file.
+    tech_stack_json = (
+        '{\n'
+        '  "ecosystem": "nextjs, typescript, tailwindcss, shadcn"\n'
+        '}'
+    )
+    return (
+        'mkdir -p .actovator/features && '
+        f'echo \'{tech_stack_json}\' > .actovator/features/tech_stack.json'
+    )
+
 template = (
     Template()
     .from_template("mcp-gateway")
@@ -92,6 +104,7 @@ template = (
     .run_cmd(set_shadcn_init_cmds())
     .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
     .run_cmd(run_init_next_script_cmd())
+    .run_cmd(write_tech_stack_json_cmd())
     .set_start_cmd(
         'pm2 start npm --name "project" -- run dev',
         wait_for_url("http://localhost:3000"),

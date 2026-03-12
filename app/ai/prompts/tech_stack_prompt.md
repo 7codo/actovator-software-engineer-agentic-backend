@@ -11,7 +11,7 @@ technology decisions based on real package compatibility, bundle impact, and pro
 ### Feature PRD
 {prd}
 
-### Existing feature tech stack
+### Existing tech stack
 {tech_stack}
 
 ---
@@ -39,7 +39,7 @@ For each uncovered requirement, select one package using these rules:
 - Choose the most widely adopted, actively maintained option
 
 **Step 4 — Output the JSON Entry**
-Append a single entry to `.actovator/features/tech_stack.json` in this exact schema:
+Append a single entry to `.actovator/features/tech_stack.json` in this exact schema or expend the ecosystem field if it;s necessary.
 
 {
   "feature": "<feature name from PRD>",
