@@ -43,12 +43,25 @@ add_langgraph_fastapi_endpoint(
     agent=LangGraphAGUIAgent(
         name="coding_agent",
         description="",
-        graph=architecture_graph,
+        graph=coding_graph,
         config={
             "recursion_limit": 100,
         },
     ),
     path="/coding",
+)
+
+add_langgraph_fastapi_endpoint(
+    app=app,
+    agent=LangGraphAGUIAgent(
+        name="architecture_agent",
+        description="",
+        graph=architecture_graph,
+        config={
+            "recursion_limit": 100,
+        },
+    ),
+    path="/architecture",
 )
 
 # add_langgraph_fastapi_endpoint(

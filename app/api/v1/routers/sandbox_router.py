@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from fastapi import Body
 from typing import List
 import e2b.exceptions
@@ -8,6 +8,7 @@ from app.services.sandbox_services import (
     get_sandbox_host_url,
     kill_sandbox,
     upload_files_to_sandbox,
+    read_file,execute_command_in_sandbox
 )
 from e2b.sandbox.filesystem.filesystem import WriteEntry
 
@@ -101,4 +102,56 @@ async def upload_files(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+@router.get(
+    "/file/{sandbox_id}",
+    summary="Read a file from the sandbox",
+    description="Read a file given a sandbox ID and file path."
+)
+async def read_sandbox_file(
+    sandbox_id: str,
+    file_path: str = Query(..., description="Path to the file inside the sandbox")
+):
+    """
+    Read a file's contents from a sandbox.
+    """
+    try:
+        content = await read_file(sandbox_id, file_path)
+        return {"file_path": file_path, "content": content}
+    except e2b.exceptions.NotFoundException:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Sandbox {sandbox_id} not found or file {file_path} does not exist"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while reading file: {str(e)}"
+        )
+
+@router.post(
+    "/command/{sandbox_id}",
+    summary="Execute a command in the sandbox",
+    description="Execute a shell command in the specified sandbox with optional working directory and user context.",
+)
+async def execute_command_in_sandbox_endpoint(
+    sandbox_id: str,
+    command: str = Query(..., description="The shell command to execute"),
+    cwd: str = Query(None, description="Working directory inside the sandbox"),
+    user: str = Query(None, description="User context for command execution"),
+):
+    """
+    Execute a command inside the sandbox environment.
+    """
+
+    try:
+        result = await execute_command_in_sandbox(sandbox_id, command, cwd=cwd, user=user)
+        return {"sandbox_id": sandbox_id, "command": command, "result": result}
+    except Exception as e:
+        # Customize error handling for specific exceptions if needed
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while executing the command: {str(e)}"
         )
