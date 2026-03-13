@@ -2,10 +2,10 @@ import uuid
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph, MessagesState
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage
 from langchain_core.prompts import PromptTemplate
 from langchain.agents import create_agent
-from app.ai.tools.mcp_tools import filtered_tools
+from app.ai.tools.mcp_tools import execute_specific_tool, filtered_tools
 from app.ai.tools.sandbox_tools import build_sandbox_tools
 from app.ai.prompts import (
     EDITING_PROMPT,
@@ -17,6 +17,7 @@ from app.ai.utils import build_model
 from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER, PROJECT_PATH
 from ai.tools.models_tools import get_coding_agent_known_package_version
 from ai.tools.changelogs_tools import build_changelog_tools
+from .testing_workflow import testing_graph
 
 
 class State(MessagesState):
@@ -27,6 +28,7 @@ class State(MessagesState):
     mini_docs: str | None = None
     research_report: str | None = None
     plan: str | None = None
+    coding_messages: list[BaseMessage] = []
 
 
 def _build_model_from_state(state: State):
@@ -81,12 +83,21 @@ async def mini_docs_creation_step(state: State) -> dict:
 async def codebase_research_step(state: State) -> dict:
     sandbox_id = _require_sandbox_id(state, "codebase_research_step")
     user_story = state.get("user_story")
-    model = _build_model_from_state(state)
+    print("user_story", user_story)
+    print("user_story", type(user_story))
+    model = build_model(
+        provider=state.get("model_provider", DEFAULT_MODEL_PROVIDER),
+        model_id=state.get("model_id", "gemini-3-flash-preview"),
+    )
     sandbox_tools = build_sandbox_tools(sandbox_id)
     packages = await sandbox_tools["read_file"](path=f"{PROJECT_PATH}/package.json")
+    tech_stack = await sandbox_tools["read_file"](
+        path=f"{PROJECT_PATH}/.actovator/features/tech_stack.json"
+    )
 
     system_message = PromptTemplate.from_template(RESEARCH_PROMPT).format(
         packages=packages,
+        tech_stack=tech_stack,
     )
     tools_result = await filtered_tools(
         sandbox_id,
@@ -96,6 +107,7 @@ async def codebase_research_step(state: State) -> dict:
             "get_symbols_overview",
             "find_file",
             "list_dir",
+            "search_for_pattern",
         ],
     )
     research_agent = create_agent(
@@ -107,9 +119,11 @@ async def codebase_research_step(state: State) -> dict:
     result = await research_agent.ainvoke(
         {"messages": [HumanMessage(content=user_story)]}
     )
-
+    result_messages = result["messages"]
+    if result_messages and isinstance(result_messages[-1], HumanMessage):
+        result_messages = result_messages[:-1]
     return {
-        "messages": result["messages"],
+        "messages": result_messages,
         "research_report": result["messages"][-1].content,
     }
 
@@ -162,6 +176,22 @@ async def editing_step(state: State) -> dict:
 
     return {
         "messages": result["messages"],
+        "coding_messages": result["messages"],
+    }
+
+
+async def testing_step(state: State) -> dict:
+    messages = state.get("coding_messages", [])
+
+    result = await testing_graph.ainvoke(
+        [
+            *messages,
+            HumanMessage(content=f"{state.get('user_task')}"),
+        ]
+    )
+
+    return {
+        "messages": result["messages"],
     }
 
 
@@ -169,19 +199,20 @@ coding_workflow = StateGraph(State)
 
 coding_workflow.add_node("init_step", init_step)
 coding_workflow.add_node("codebase_research_step", codebase_research_step)
-coding_workflow.add_node("planner_step", planner_step)
-coding_workflow.add_node("mini_docs_creation_step", mini_docs_creation_step)
-coding_workflow.add_node("editing_step", editing_step)
+# coding_workflow.add_node("planner_step", planner_step)
+# coding_workflow.add_node("mini_docs_creation_step", mini_docs_creation_step)
+# coding_workflow.add_node("editing_step", editing_step)
 
 ## Running in parellel
 coding_workflow.add_edge(START, "init_step")
-coding_workflow.add_edge("init_step", "codebase_research_step")
-coding_workflow.add_edge("init_step", "mini_docs_creation_step")
+# coding_workflow.add_edge("init_step", "codebase_research_step")
+# coding_workflow.add_edge("init_step", "mini_docs_creation_step")
 ## after they done
-coding_workflow.add_edge("mini_docs_creation_step", "planner_step")
-coding_workflow.add_edge("codebase_research_step", "planner_step")
-coding_workflow.add_edge("planner_step", "editing_step")
-coding_workflow.add_edge("editing_step", END)
+# coding_workflow.add_edge("mini_docs_creation_step", "planner_step")
+coding_workflow.add_edge("init_step", "codebase_research_step")
+# coding_workflow.add_edge("codebase_research_step", "planner_step")
+# coding_workflow.add_edge("planner_step", "editing_step")
+coding_workflow.add_edge("codebase_research_step", END)
 
 checkpointer = InMemorySaver()
 config = {"configurable": {"thread_id": str(uuid.uuid4())}, "recursion_limit": 100}

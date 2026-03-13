@@ -300,7 +300,7 @@ async def _main() -> None:
     #     package_name="next",
     # )
     result = await sandbox_tools["execute_shell_command"](
-        command="gh auth status", cwd=PROJECT_PATH
+        command="rm -r features/", cwd=PROJECT_PATH
     )
     print("result", result)
 
