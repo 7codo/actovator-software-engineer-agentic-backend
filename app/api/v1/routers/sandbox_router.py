@@ -8,7 +8,8 @@ from app.services.sandbox_services import (
     get_sandbox_host_url,
     kill_sandbox,
     upload_files_to_sandbox,
-    read_file,execute_command_in_sandbox
+    read_file,
+    execute_command_in_sandbox,
 )
 from e2b.sandbox.filesystem.filesystem import WriteEntry
 
@@ -29,6 +30,7 @@ async def create_sandbox(github_token: str):
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
         )
 
+
 @router.get("/host/{sandbox_id}", summary="Get the host URL for a sandbox")
 async def get_host(sandbox_id: str):
     """
@@ -47,9 +49,7 @@ async def get_host(sandbox_id: str):
         )
 
 
-@router.delete(
-    "/kill/{sandbox_id}", summary="Kill (delete) a sandbox by its ID"
-)
+@router.delete("/kill/{sandbox_id}", summary="Kill (delete) a sandbox by its ID")
 async def kill_sdbx(sandbox_id: str):
     """
     Kills (terminates/deletes) a sandbox given its ID.
@@ -58,9 +58,7 @@ async def kill_sdbx(sandbox_id: str):
         await kill_sandbox(sandbox_id)
         return {"detail": f"Sandbox {sandbox_id} killed successfully."}
     except e2b.exceptions.NotFoundException:
-        raise HTTPException(
-            status_code=404, detail=f"Sandbox {sandbox_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Sandbox {sandbox_id} not found")
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
@@ -75,7 +73,7 @@ async def kill_sdbx(sandbox_id: str):
 async def upload_files(
     sandbox_id: str,
     files: List[UploadFile] = File(..., description="Files to upload"),
-    file_path: str = f"{PROJECT_PATH}/public"
+    file_path: str = f"{PROJECT_PATH}/public",
 ):
     """
     Upload one or more files to the sandbox at a given path.
@@ -85,7 +83,6 @@ async def upload_files(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided for upload.")
 
-
     write_entries = []
     for upload_file in files:
         dest_path = f"{file_path}/{upload_file.filename}"
@@ -94,11 +91,11 @@ async def upload_files(
 
     try:
         await upload_files_to_sandbox(sandbox_id, write_entries)
-        return {"detail": f"{len(write_entries)} file(s) uploaded to sandbox {sandbox_id}."}
+        return {
+            "detail": f"{len(write_entries)} file(s) uploaded to sandbox {sandbox_id}."
+        }
     except e2b.exceptions.NotFoundException:
-        raise HTTPException(
-            status_code=404, detail=f"Sandbox {sandbox_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Sandbox {sandbox_id} not found")
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
@@ -108,28 +105,29 @@ async def upload_files(
 @router.get(
     "/file/{sandbox_id}",
     summary="Read a file from the sandbox",
-    description="Read a file given a sandbox ID and file path."
+    description="Read a file given a sandbox ID and file path.",
 )
 async def read_sandbox_file(
     sandbox_id: str,
-    file_path: str = Query(..., description="Path to the file inside the sandbox")
+    file_path: str = Query(..., description="Path to the file inside the sandbox"),
 ):
     """
     Read a file's contents from a sandbox.
     """
     try:
-        content = await read_file(sandbox_id, file_path)
+        content = await read_file(sandbox_id, f"{PROJECT_PATH}/{file_path}")
         return {"file_path": file_path, "content": content}
     except e2b.exceptions.NotFoundException:
         raise HTTPException(
             status_code=404,
-            detail=f"Sandbox {sandbox_id} not found or file {file_path} does not exist"
+            detail=f"Sandbox {sandbox_id} not found or file {file_path} does not exist",
         )
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred while reading file: {str(e)}"
+            detail=f"An unexpected error occurred while reading file: {str(e)}",
         )
+
 
 @router.post(
     "/command/{sandbox_id}",
@@ -147,11 +145,13 @@ async def execute_command_in_sandbox_endpoint(
     """
 
     try:
-        result = await execute_command_in_sandbox(sandbox_id, command, cwd=cwd, user=user)
+        result = await execute_command_in_sandbox(
+            sandbox_id, command, cwd=cwd, user=user
+        )
         return {"sandbox_id": sandbox_id, "command": command, "result": result}
     except Exception as e:
         # Customize error handling for specific exceptions if needed
         raise HTTPException(
             status_code=500,
-            detail=f"An error occurred while executing the command: {str(e)}"
+            detail=f"An error occurred while executing the command: {str(e)}",
         )
