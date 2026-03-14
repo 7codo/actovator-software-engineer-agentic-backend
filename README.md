@@ -29,3 +29,6 @@ search_for_pattern
 get_symbols_overview
 find_symbol
 find_referencing_symbols
+
+---
+Create a file upload system with drag-and-drop and progress bar

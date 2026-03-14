@@ -38,6 +38,7 @@ class State(MessagesState):
 
 
 def _build_model_from_state(state: State):
+
     return build_model(
         provider=state.get("model_provider", DEFAULT_MODEL_PROVIDER),
         model_id=state.get("model_id", DEFAULT_MODEL_ID),
@@ -60,18 +61,17 @@ async def _get_available_features_metadata(sandbox_id: str):
         "list_dir",
         {"relative_path": ".actovator/features", "recursive": True},
     )
-    print("list_result", list_result)
+
     _, files = parse_list_dir_tool_result(list_result["result"])
 
-    print("files", files)
     available_features = []
     for prd_path in (f for f in files if f.endswith("/prd.md")):
         file_result = await execute_specific_tool(
-            sandbox_id, "read_file", {"path": prd_path}
+            sandbox_id, "read_file", {"relative_path": prd_path}
         )
         metadata, _ = parse_frontmatter(file_result["result"])
         available_features.append({"path": prd_path, "metadata": metadata})
-    print("available_features", available_features)
+
     return available_features
 
 
@@ -125,109 +125,119 @@ def _get_relative_path_from_last_scope(messages):
 
 async def init_step(state: State) -> Dict[str, Any]:
     sandbox_id = _require_sandbox_id(state)
-    print("sandbox_id", sandbox_id)
+
     return {"sandbox_id": sandbox_id}
 
 
 async def prd_generator_step(state: State, config: RunnableConfig) -> Dict[str, Any]:
 
     model = _build_model_from_state(state)
+
     built_tools = await filtered_tools(
         state.get("sandbox_id"),
         allowed_tools=["read_file", "create_text_file", "replace_content"],
     )
-    print("tools length", len(built_tools.tools))
 
     available_features = await _get_available_features_metadata(state.get("sandbox_id"))
     print("available_features", available_features)
     system_message = PromptTemplate.from_template(PRD_GENERATOR_PROMPT).format(
         available_feature=json.dumps(available_features),
     )
-    print("system_message", system_message[:50])
+
     agent = create_agent(
         model=model, system_prompt=system_message, tools=built_tools.tools
     )
     result = await agent.ainvoke({"messages": state["messages"]}, config)
     messages = result["messages"]
-    # print("messages", messages)
-    # # prd_path = None
-    # # for msg in reversed(messages):
-    # #     if isinstance(msg, ToolMessage) and msg.name == "assign_prd_saving_completed":
-    # #         prd_path = (
-    # #             msg.
-    # #         )
-    # #         break
-    # # print("prd_path", prd_path)
+
     relative_path_result = _get_relative_path_from_last_scope(messages)
     print("relative_path_result", relative_path_result)
+    print("END prd generator", len(messages))
     return {"messages": messages, "prd_path": relative_path_result["relative_path"]}
 
 
 async def tech_stack_expander_step(
     state: State, config: RunnableConfig
 ) -> Dict[str, Any]:
-
+    messages = state.get("messages", [])
+    print("Start tech_stack_expander_step", len(messages))
+    prd_file_path = state.get("prd_path")
+    print("prd_file_path", prd_file_path)
+    if not prd_file_path:
+        return {
+            "messages": [
+                *messages,
+                AIMessage(
+                    content="Error: Create PRD file first to generate user stories."
+                ),
+            ]
+        }
     packages = await execute_specific_tool(
         state.get("sandbox_id"),
         "read_file",
         {"relative_path": "package.json"},
     )
-    # print("packages", packages)
+    #
     feature_prd = await execute_specific_tool(
         state.get("sandbox_id"),
         "read_file",
-        {
-            "relative_path": state.get(
-                "prd_path", ".actovator/features/file-upload-system/prd.md"
-            )
-        },
+        {"relative_path": prd_file_path},
     )
-    # print("feature_prd", feature_prd)
+    #
     tech_stack = await execute_specific_tool(
         state.get("sandbox_id"),
         "read_file",
         {"relative_path": ".actovator/features/tech_stack.json"},
     )
-    # print("tech_stack", tech_stack)
+    #
 
     model = _build_model_from_state(state)
     built_tools = await filtered_tools(
         state.get("sandbox_id"),
         allowed_tools=["replace_content"],
     )
-    print("len tools", len(built_tools.tools))
+
     system_message = PromptTemplate.from_template(TECH_STACK_PROMPT).format(
         tech_stack=json.dumps(tech_stack["result"]),
         prd=feature_prd["result"],
         packages=json.dumps(packages["result"]),
     )
-    print("system_message", system_message[:50])
+
     agent = create_agent(
         model=model, system_prompt=system_message, tools=built_tools.tools
     )
     result = await agent.ainvoke({"messages": state["messages"]}, config)
+    print("End tech_stack_expander_step", len(result["messages"]))
     return {"messages": result["messages"]}
 
 
 async def user_stories_generator_step(
     state: State, config: RunnableConfig
 ) -> Dict[str, Any]:
-
-    prd_file_path = state.get(
-        "prd_path", ".actovator/features/file-upload-system/prd.md"
-    )
+    messages = state.get("messages", [])
+    print("Start user_stories_generator_step", len(messages))
+    prd_file_path = state.get("prd_path")
+    print("prd_file_path", prd_file_path)
+    if not prd_file_path:
+        return {
+            "messages": [
+                *messages,
+                AIMessage(
+                    content="Error: Create PRD file first to generate user stories."
+                ),
+            ]
+        }
     prd_content = await execute_specific_tool(
         state.get("sandbox_id"),
         "read_file",
         {"relative_path": prd_file_path},
     )
-    print("prd_content", prd_content)
+
     tech_stack = await execute_specific_tool(
         state.get("sandbox_id"),
         "read_file",
         {"relative_path": ".actovator/features/tech_stack.json"},
     )
-    print("tech_stack", tech_stack)
 
     model = _build_model_from_state(state)
     built_tools = await filtered_tools(
@@ -242,7 +252,8 @@ async def user_stories_generator_step(
     agent = create_agent(
         model=model, system_prompt=system_message, tools=built_tools.tools
     )
-    result = await agent.ainvoke({"messages": state["messages"]}, config)
+    result = await agent.ainvoke({"messages": messages}, config)
+    print("End user_stories_generator_step", len(result["messages"]))
     return {"messages": result["messages"]}
 
 
@@ -251,13 +262,15 @@ async def user_stories_generator_step(
 # ---------------------------------------------------------------------------
 
 
-def route_to(state: State) -> Literal["tech_stack_expander_step", "__end__"]:
-    # FIX: `is_instance` → `isinstance`, added missing `:`, fixed attribute access
-    last_msg = state.get("messages", [])[-1] if state.get("messages") else None
-    if (
-        isinstance(last_msg, ToolMessage)
-        and last_msg.name == "assign_prd_saving_completed"
-    ):
+def route_to(
+    state: State,
+) -> Literal[
+    "tech_stack_expander_step", "__end__"
+]:  # WHY: to determine where the prd generator step complete conversation with the human
+
+    prd_path = state.get("prd_path")
+    print("Routing decision - prd_path:", prd_path)
+    if prd_path:
         return "tech_stack_expander_step"
     return END
 
@@ -269,16 +282,18 @@ def route_to(state: State) -> Literal["tech_stack_expander_step", "__end__"]:
 architecture_workflow = StateGraph(State)
 
 architecture_workflow.add_node("init_step", init_step)
+architecture_workflow.add_node("prd_generator_step", prd_generator_step)
 architecture_workflow.add_node(
     "user_stories_generator_step", user_stories_generator_step
 )
-# architecture_workflow.add_node(
-#     "tech_stack_expander_step", tech_stack_expander_step
-# )
+architecture_workflow.add_node("tech_stack_expander_step", tech_stack_expander_step)
 
 architecture_workflow.add_edge(START, "init_step")
-architecture_workflow.add_edge("init_step", "user_stories_generator_step")
-# architecture_workflow.add_conditional_edges("prd_generator_step", route_to)  # FIX: removed duplicate unconditional edge
+architecture_workflow.add_edge("init_step", "prd_generator_step")
+architecture_workflow.add_conditional_edges("prd_generator_step", route_to)
+architecture_workflow.add_edge(
+    "tech_stack_expander_step", "user_stories_generator_step"
+)
 architecture_workflow.add_edge("user_stories_generator_step", END)
 
 architecture_graph = architecture_workflow.compile(checkpointer=InMemorySaver())
@@ -289,4 +304,3 @@ if __name__ == "__main__":
     available_features = asyncio.run(
         _get_available_features_metadata("iigdxjs9fklw96v31hqhe")
     )
-    print("available_features", available_features)

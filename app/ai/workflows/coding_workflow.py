@@ -87,7 +87,7 @@ async def codebase_research_step(state: State) -> dict:
     print("user_story", type(user_story))
     model = build_model(
         provider=state.get("model_provider", DEFAULT_MODEL_PROVIDER),
-        model_id=state.get("model_id", "gemini-3-flash-preview"),
+        model_id=state.get("model_id", "gemini-3-pro-preview"),
     )
     sandbox_tools = build_sandbox_tools(sandbox_id)
     packages = await sandbox_tools["read_file"](path=f"{PROJECT_PATH}/package.json")
