@@ -281,7 +281,7 @@ async def _main() -> None:
     #         sandbox_id="i5puwhqrasfuvocwi6rqi", api_key=settings.e2b_api_key
     #     )
     sandbox_tools = build_sandbox_tools(
-        "iigdxjs9fklw96v31hqhe"
+        "ix4xgida2na47rtq457iq"
     )  # i9na59ivfvvyq3ha8qsct created directly
     # result = await sandbox.commands.run(
     #     "apt-get install -y "
@@ -300,7 +300,7 @@ async def _main() -> None:
     #     package_name="next",
     # )
     result = await sandbox_tools["execute_shell_command"](
-        command="rm -r features/", cwd=PROJECT_PATH
+        command="rm -r .actovator/features/file-upload-system", cwd=PROJECT_PATH
     )
     print("result", result)
 

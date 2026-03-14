@@ -8,9 +8,8 @@ from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 Provider = Literal["google_genai",]
 
 ModelId = Literal[
-    "gemini-3-flash-preview",
     "gemini-3-pro-preview",
-    "gemini-3-flash-preview",
+    # "gemini-3-flash-preview", It's hallucianite
 ]
 
 

@@ -122,8 +122,6 @@ async def execute_specific_tool(
     isolated_config = RunnableConfig(callbacks=[])
 
     result = await tool.ainvoke(input, isolated_config)
-    print(result)
-    print("*" * 25)
 
     # Added safe access check for result parsing.
     # If the result is a list containing text, we extract it directly into the 'result' field.
