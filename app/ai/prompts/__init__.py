@@ -1,6 +1,8 @@
 from app.utils.files_utils import read_file_from_init
 
 EDITING_PROMPT: str = read_file_from_init("editing_prompt.md", "app.ai.prompts")
+DEPENDENCY_AUDITOR_PROMPT: str = read_file_from_init("dependency_auditor_prompt.md", "app.ai.prompts")
+COIL_FRAMEWORK_PROMPT: str = read_file_from_init("coil_framework_prompt.md", "app.ai.prompts")
 TESTING_PROMPT: str = read_file_from_init("testing_prompt.md", "app.ai.prompts")
 E2E_TESTING_PROMPT: str = read_file_from_init("e2e_testing_prompt.md", "app.ai.prompts")
 RESEARCH_PROMPT: str = read_file_from_init("research_prompt.md", "app.ai.prompts")

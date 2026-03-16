@@ -59,7 +59,7 @@ def init_actovator_cmd():
     )
 
 def create_test_directories_cmd():
-    return "mkdir -p .actovator/tests/e2e/bashs .actovator/tests/e2e/screenshots .actovator/features"
+    return "mkdir -p .actovator/bashs .actovator/tests/e2e .actovator/tests/e2e/screenshots .actovator/features"
 
 def set_shadcn_init_cmds():
     return [

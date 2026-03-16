@@ -16,12 +16,7 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
         template="nextjs-latest",
         api_key=settings.e2b_api_key,
         auto_pause=True,
-        mcp={
-            "github/7codo/serena": {
-                "installCmd": "uv pip install -r pyproject.toml --system",
-                "runCmd": f"uv run serena-mcp-server --project {PROJECT_PATH}",
-            },
-        },
+        
         envs={
             "NEXT_TELEMETRY_DISABLED": "1",
             "GITHUB_TOKEN": github_token or "",
