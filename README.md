@@ -32,3 +32,6 @@ find_referencing_symbols
 
 ---
 Create a file upload system with drag-and-drop and progress bar
+
+### Notes
+execute sandbox MCP tools in parallel like using asyncio.gather leads to an error

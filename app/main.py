@@ -22,7 +22,7 @@ from app.constants import LOG_FORMAT
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://verbose-lamp-7r699jpwq692r7qj-3000.app.github.dev"],
+    allow_origins=["*.cloudworkstations.dev"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

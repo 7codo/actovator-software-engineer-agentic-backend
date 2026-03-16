@@ -4,8 +4,6 @@ Converts existing PRDs to the user stories json format that Coding Agent uses fo
 ---
 
 ## Context
-### PRD
-{prd}
 
 ### PRD file path
 {prd_file_path}

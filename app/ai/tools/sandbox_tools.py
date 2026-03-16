@@ -300,7 +300,7 @@ async def _main() -> None:
     #     package_name="next",
     # )
     result = await sandbox_tools["execute_shell_command"](
-        command="rm -r .actovator/features/file-upload-system", cwd=PROJECT_PATH
+        command="rm -r .actovator/features/file-upload-system/prd.md", cwd=PROJECT_PATH
     )
     print("result", result)
 

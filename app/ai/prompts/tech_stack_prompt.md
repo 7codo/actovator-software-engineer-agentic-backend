@@ -8,9 +8,6 @@ technology decisions based on real package compatibility, bundle impact, and pro
 ### Current packages (package.json)
 {packages}
 
-### Feature PRD
-{prd}
-
 ### Existing tech stack
 {tech_stack}
 
@@ -47,18 +44,21 @@ Use `replace_content` in **regex** mode to splice your new entry into `.actovato
 - Remove all `\n` escape literals — use actual newlines in the replacement string.
 
 The entry schema (no trailing commas):
-
-{{
-  "feature": "<feature name from PRD>",
-  "packages": [
-    {{
-      "name": "<package-name>",
-      "purpose": "<one sentence: what requirement it solves>"
-    }}
-  ],
-  "notes": "<optional: migration steps, warnings, or tradeoffs>"
-}}
-
+[
+  {{
+    "ecosystem": ...
+  }},
+  {{
+    "feature": "<feature name from PRD>",
+    "packages": [
+      {{
+        "name": "<package-name>",
+        "purpose": "<one sentence: what requirement it solves>"
+      }}
+    ],
+    "notes": "<optional: migration steps, warnings, or tradeoffs>"
+  }}
+]
 If no new packages are needed, set `packages` to `[]` and explain in `notes`.
 ---
 
