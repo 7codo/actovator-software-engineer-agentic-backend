@@ -22,9 +22,7 @@ Each tool entry defines: `name` (invoke via curl), `description` (your primary s
 
 ## Task
 
-```
-{user_task}
-```
+the user task
 
 ---
 
@@ -78,12 +76,12 @@ Write a bash script that acts on the world using the context gathered.
 - **End the script with a JSON result** in this exact schema:
 
 ```json
-{
+{{
   "task": "<task description>",
   "status": "success | failed",
   "actions_taken": ["<action 1>", "<action 2>"],
   "result": "<final output or error detail>"
-}
+}}
 ```
 
 ---

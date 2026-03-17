@@ -1,11 +1,14 @@
 """
 Notes:
 - add-repository doesn't work even with root permission so I use curl instead
+- additionally, we clone the public repo https://github.com/7codo/serena to /home/user
+- then, we run the FastAPI app using: uv run serena-server --project PROJECT_PATH
 """
 
-from e2b import Template, default_build_logger, wait_for_url
+from e2b import Template, default_build_logger
 from app.constants import PROJECT_PATH
 from app.core.config import settings
+
 
 def install_python_313_cmd():
     return (
@@ -21,6 +24,7 @@ def install_python_313_cmd():
         "cd /home/user && rm -rf Python-3.13.0 Python-3.13.0.tgz"
     )
 
+
 def install_github_cli_cmd():
     return (
         "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && "
@@ -29,12 +33,14 @@ def install_github_cli_cmd():
         "apt install gh -y"
     )
 
+
 def install_global_tools_cmds():
     return [
         "npm install -g npm@latest",
         "pip install uv",
         "npm install -g pm2",
     ]
+
 
 def install_playwright_and_agent_browser_cmds():
     return [
@@ -52,38 +58,42 @@ def install_playwright_and_agent_browser_cmds():
         ),  # for Chromium
     ]
 
+
 def init_actovator_cmd():
     return (
-        'mkdir -p .actovator && '
+        "mkdir -p .actovator && "
         'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > .actovator/config.json'
     )
+
 
 def create_test_directories_cmd():
     return "mkdir -p .actovator/bashs .actovator/tests/e2e .actovator/tests/e2e/screenshots .actovator/features"
 
+
 def set_shadcn_init_cmds():
-    return [
-        "npx shadcn@latest init -d",
-        "npx shadcn@latest add button"
-    ]
+    return ["npx shadcn@latest init -d", "npx shadcn@latest add button"]
+
 
 def run_init_next_script_cmd():
     return [
         "chmod +x .actovator/init-next.sh && .actovator/init-next.sh",
-        "rm .actovator/init-next.sh"
+        "rm .actovator/init-next.sh",
     ]
+
 
 def write_tech_stack_json_cmd():
     # Create the features dir if missing and write the tech stack file.
-    tech_stack_json = (
-        '{\n'
-        '  "ecosystem": "nextjs, typescript, tailwindcss, shadcn"\n'
-        '}'
-    )
+    tech_stack_json = '{\n  "ecosystem": "nextjs, typescript, tailwindcss, shadcn"\n}'
     return (
-        'mkdir -p .actovator/features && '
-        f'echo \'{tech_stack_json}\' > .actovator/features/tech_stack.json'
+        "mkdir -p .actovator/features && "
+        f"echo '{tech_stack_json}' > .actovator/features/tech_stack.json"
     )
+
+
+def clone_serena_repo_cmd():
+    # Shallow clone for faster CI image builds
+    return "git clone --depth=1 https://github.com/7codo/serena.git /home/user/serena"
+
 
 template = (
     Template()
@@ -93,6 +103,7 @@ template = (
     .run_cmd(install_github_cli_cmd(), user="root")
     .run_cmd(install_global_tools_cmds(), user="root")
     .run_cmd(install_playwright_and_agent_browser_cmds(), user="root")
+    .run_cmd(clone_serena_repo_cmd())
     .set_user("user")
     .set_workdir(PROJECT_PATH)
     .run_cmd(
@@ -105,10 +116,9 @@ template = (
     .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
     .run_cmd(run_init_next_script_cmd())
     .run_cmd(write_tech_stack_json_cmd())
-    .set_start_cmd(
-        'pm2 start npm --name "project" -- run dev',
-        wait_for_url("http://localhost:3000"),
-    )
+    .run_cmd('pm2 start npm --name "project" -- run dev')
+    .set_workdir("/home/user/serena")
+    .run_cmd(f'pm2 start uv --name "serena" -- serena-server --project {PROJECT_PATH}')
 )
 
 Template.build(

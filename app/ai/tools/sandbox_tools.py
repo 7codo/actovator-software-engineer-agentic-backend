@@ -1,5 +1,4 @@
 import hashlib
-import re
 import textwrap
 from datetime import datetime
 
@@ -9,13 +8,7 @@ from langchain_core.tools import BaseTool
 
 from app.constants import PROJECT_PATH
 from app.core.config import settings
-from app.utils.changelogs_retriever_utils import (
-    fetch_release_by_ref,
-    format_release,
-    parse_repo_url,
-    fetch_all_releases,
-    filter_releases_between,
-)
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -30,6 +23,7 @@ _ACTOVATOR_PATH = f"{PROJECT_PATH}/.actovator"
 
 
 def _add_shebang(content: str) -> str:
+    """Ensure content starts with a bash shebang and safe bash config."""
     if not content.startswith("#!"):
         return "#!/usr/bin/env bash\nset -euo pipefail\n\n" + content
     return content
@@ -68,8 +62,6 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             sandbox_id=sdbx_id, api_key=settings.e2b_api_key
         )
 
-    # not exposed as a @tool ─────────────────────────
-
     async def execute_shell_command(
         command: str,
         user: str = "root",
@@ -100,61 +92,53 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
                 f"read_file failed.\nReason: {type(e).__name__}: {e}"
             ) from e
 
-    
     async def get_host_url(port: int = 8000) -> dict:
         """Return the public HTTPS URL exposed by the sandbox on the given port.
 
         Args:
             port: The sandbox port to expose (default 8000).
 
-        Returns: full https:// URL
+        Returns: dict: {'url': ..., 'port': ..., 'error': ... (optional)}
         """
         try:
             sandbox = await _get_sandbox()
             host = sandbox.get_host(port)
             url = f"https://{host}"
-            return url
+            return {"url": url, "port": port}
         except Exception as e:
             return {"url": None, "port": port, "error": f"[{type(e).__name__}] {e}"}
 
-    # ── Public tools ─────────────────────────────────────────────────────────
     @tool
     async def create_run_bash_script(
         script_content: str,
         script_name: str = "",
         timeout: int = 60,
     ) -> dict:
-        """Write an bash script, then execute it.
-
-        A shebang is prepended automatically when absent.
-
+        """
+        Write a bash script, then execute it. Prepends a shebang if missing.
         Args:
             script_content: Full bash script body.
             script_name:    Filename stem (no .sh extension). Auto-generated when omitted.
             timeout:        Hard kill timeout in seconds (default 60).
-
         Returns:
             {
-                "script_path": str,   # path written inside the sandbox
+                "script_path": str,
                 "stdout":      str,
                 "stderr":      str,
                 "exit_code":   int,
             }
         """
-        # ── 1. Normalise content ─────────────────────────────────────────────
+        # 1. Normalize content
         content = _add_shebang(textwrap.dedent(script_content).strip())
 
-
-        # ── 3. Resolve script name & digest ──────────────────────────────────
+        # 2/3. Resolve name/digest
         digest = _content_digest(content)
         if not script_name:
             script_name, digest = _make_script_name(content)
-
         script_name = script_name.removesuffix(".sh")
         script_path = f"bashs/{script_name}.sh"
 
-
-        # ── 5. Write via heredoc (handles quotes/special chars safely) ────────
+        # 4/5. Write via heredoc
         try:
             delimiter = f"HEREDOC_{hashlib.sha1(script_name.encode()).hexdigest()[:8]}"
             write_cmd = f"cat > {script_path} << '{delimiter}'\n{content}\n{delimiter}"
@@ -162,15 +146,13 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         except Exception as e:
             return _shell_error(f"Failed to write script to {script_path}", e)
 
-        # ── 6. Make executable ────────────────────────────────────────────────
+        # 6. Make executable
         try:
-            await execute_shell_command(
-                f"chmod +x {script_path}", cwd=_ACTOVATOR_PATH
-            )
+            await execute_shell_command(f"chmod +x {script_path}", cwd=_ACTOVATOR_PATH)
         except Exception as e:
             return _shell_error(f"Failed to chmod {script_path}", e)
 
-        # ── 7. Run ────────────────────────────────────────────────────────────
+        # 7. Run script
         try:
             result = await execute_shell_command(
                 f"timeout {timeout} bash {script_path}", cwd=_ACTOVATOR_PATH
@@ -185,13 +167,9 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             "exit_code": result.exit_code,
         }
 
-        host = sandbox.get_host(port)
-    url = f"https://{host}"
-
     return {
         "create_run_bash_script": create_run_bash_script,
         "execute_shell_command": execute_shell_command,
         "read_file": read_file,
         "get_host_url": get_host_url,
     }
-
