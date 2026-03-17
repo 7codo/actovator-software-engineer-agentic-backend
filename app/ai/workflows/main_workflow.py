@@ -42,13 +42,18 @@ class State(MessagesState):
     model_id: Optional[str] = None
 
 
+def _require_sandbox_id(state: State) -> str:
+    sandbox_id = state.get("sandbox_id")
+    if not sandbox_id:
+        raise ValueError("sandbox_id is required!")
+    return sandbox_id
+
+
 async def main_node(state: State, config: RunnableConfig) -> dict:
-    """
-    Main node for workflow: builds model/tooling, discovers tools, constructs prompt, and runs the agent.
-    """
+
+    sandbox_id = _require_sandbox_id(state, "mini_docs_creation_step")
     model_provider = state.get("model_provider") or DEFAULT_MODEL_PROVIDER
     model_id = state.get("model_id") or DEFAULT_MODEL_ID
-    sandbox_id = state.get("sandbox_id")
 
     model = build_model(provider=model_provider, model_id=model_id)
     sandbox_tools = build_sandbox_tools(sandbox_id)
@@ -62,10 +67,13 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
 
     # Compose system prompt.
     print("available_api_tools", available_api_tools)
+
     def dump_tools(tools):
         import json
+
         # Escape { and } so PromptTemplate doesn't treat them as variables
         return json.dumps(tools, indent=2)
+
     print("dump_tools(available_api_tools)", dump_tools(available_api_tools))
     system_message = PromptTemplate.from_template(COIL_FRAMEWORK_PROMPT).format(
         available_api_tools=dump_tools(available_api_tools),
