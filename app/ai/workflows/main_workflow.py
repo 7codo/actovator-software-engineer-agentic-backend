@@ -12,7 +12,7 @@ from app.ai.tools.sandbox_tools import build_sandbox_tools
 from app.ai.utils import build_model
 from app.constants import DEFAULT_MODEL_PROVIDER, DEFAULT_MODEL_ID
 from app.ai.skills import SERENA_TOOLS_USAGE_SKILL
-
+from app.utils.files_utils import build_skills_index
 
 
 async def get_available_api_tools(
@@ -50,9 +50,8 @@ def _require_sandbox_id(state: State) -> str:
         raise ValueError("sandbox_id is required!")
     return sandbox_id
 
-skills_files = {
-    "name": SERENA_TOOLS_USAGE_SKILL
-}
+
+skills_files = [SERENA_TOOLS_USAGE_SKILL]
 
 
 async def main_node(state: State, config: RunnableConfig) -> dict:
@@ -80,14 +79,14 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
         # Escape { and } so PromptTemplate doesn't treat them as variables
         return json.dumps(tools, indent=2)
 
-    
-    available_skills
+    available_skills_by_name = build_skills_index(skills_files)
+
     print("dump_tools(available_api_tools)", dump_tools(available_api_tools))
     system_message = PromptTemplate.from_template(COIL_FRAMEWORK_PROMPT).format(
         available_api_tools=dump_tools(available_api_tools),
         available_bash_commands="No bash commands related to this task",
         tools_api_base_url=tools_api_base_url["url"],
-        available_skills=
+        available_skills=available_skills_by_name,
     )
     print("system_message", system_message[:5])
     # Create and run deep agent
@@ -95,10 +94,9 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
         model=model,
         system_prompt=system_message,
         tools=[sandbox_tools["create_run_bash_script"]],
-         
     )
     result = await agent.ainvoke(
-        {"messages": state.get("messages", []),  "files": skills_files},
+        {"messages": state.get("messages", []), "files": skills_files},
         config=config,
     )
 
@@ -114,4 +112,4 @@ checkpointer = InMemorySaver()
 main_graph = main_workflow.compile(checkpointer=checkpointer)
 
 if __name__ == "__main__":
-    print(SERENA_TOOLS_USAGE_SKILL) ## it printed
+    print(SERENA_TOOLS_USAGE_SKILL)  ## it printed

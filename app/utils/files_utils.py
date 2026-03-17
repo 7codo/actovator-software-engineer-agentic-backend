@@ -4,12 +4,16 @@ import yaml
 from pathlib import Path
 import importlib.resources
 from typing import Any
+from functools import lru_cache
+
 
 def read_file_from_init(filename: str, package: str) -> str:
-    with importlib.resources.files(package).joinpath(filename).open("r", encoding="utf-8") as f:
+    with (
+        importlib.resources.files(package)
+        .joinpath(filename)
+        .open("r", encoding="utf-8") as f
+    ):
         return f.read()
-    
-
 
 
 def parse_list_dir_tool_result(result: Any) -> tuple[list[str], list[str]]:
@@ -52,7 +56,7 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
         return {}, content
 
     raw_yaml = match.group(1)
-    body = content[match.end():]
+    body = content[match.end() :]
 
     try:
         metadata = yaml.safe_load(raw_yaml) or {}
@@ -69,6 +73,37 @@ def parse_frontmatter_file(filepath: str) -> tuple[dict[str, Any], str]:
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
     return parse_frontmatter(content)
+
+
+@lru_cache(maxsize=256)
+def parse_frontmatter_cached(content: str) -> tuple[dict[str, Any], str]:
+    """
+    Cached variant of `parse_frontmatter` for repeated parsing of the same
+    in-memory markdown strings (e.g. embedded skill docs).
+    """
+    return parse_frontmatter(content)
+
+
+def build_skills_index(skills_files: list[str]):
+    """
+    Build:
+    - a list of public skill metadata dicts (name/description) for prompting
+    - a name -> body index for fast lookups
+
+    Skills missing a valid `name` are ignored.
+    """
+    by_name: dict[str, str] = {}
+
+    for content in skills_files:
+        metadata, body = parse_frontmatter_cached(content)
+        name = metadata.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        key = name.strip()
+        by_name[key] = body
+
+    return by_name
+
 
 # md = """\
 # ---
