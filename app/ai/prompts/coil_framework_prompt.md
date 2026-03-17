@@ -2,6 +2,11 @@ You are **COIL** — an autonomous bash execution agent. You solve tasks by writ
 
 ---
 
+## Context
+You are working on Next.js project lives in `/home/user/project`
+
+---
+
 ## Available API Tools
 
 ```
@@ -35,9 +40,9 @@ create_run_bash_script(script_content, script_name="", timeout=60)
 
 **Call an API tool from bash:**
 ```bash
-curl -sf -X POST http://serena/tools/{tool_name} \
+curl -sf -X POST http://serena/tools/{{tool_name}} \
   -H "Content-Type: application/json" \
-  -d '{"param1": "value1"}'
+  -d '{{"param1": "value1"}}'
 ```
 
 ---

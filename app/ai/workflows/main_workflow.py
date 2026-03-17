@@ -2,12 +2,11 @@ import httpx
 from typing import Optional
 
 from deepagents import create_deep_agent
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import MessagesState
+from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
-
+from langchain.agents import create_agent
 from app.ai.prompts import COIL_FRAMEWORK_PROMPT
 from app.ai.tools.sandbox_tools import build_sandbox_tools
 from app.ai.utils import build_model
@@ -49,30 +48,32 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
     """
     model_provider = state.get("model_provider") or DEFAULT_MODEL_PROVIDER
     model_id = state.get("model_id") or DEFAULT_MODEL_ID
-    sandbox_id = state["sandbox_id"]
+    sandbox_id = state.get("sandbox_id")
 
     model = build_model(provider=model_provider, model_id=model_id)
     sandbox_tools = build_sandbox_tools(sandbox_id)
 
     # Get the sandbox tool API base URL and fetch available API tools.
     tools_api_base_url = await sandbox_tools["get_host_url"](8000)
+    print("tools_api_base_url", tools_api_base_url)
     available_api_tools = await get_available_api_tools(
         tools_api_base_url["url"], allowed_tools=["read_file", "list_file"]
     )
 
     # Compose system prompt.
+    print("available_api_tools", available_api_tools)
     def dump_tools(tools):
         import json
-
+        # Escape { and } so PromptTemplate doesn't treat them as variables
         return json.dumps(tools, indent=2)
-
+    print("dump_tools(available_api_tools)", dump_tools(available_api_tools))
     system_message = PromptTemplate.from_template(COIL_FRAMEWORK_PROMPT).format(
         available_api_tools=dump_tools(available_api_tools),
         available_bash_commands="No bash commands related to this task",
     )
-
+    print("system_message", system_message[:5])
     # Create and run deep agent
-    agent = create_deep_agent(
+    agent = create_agent(
         model=model,
         system_prompt=system_message,
         tools=[sandbox_tools["create_run_bash_script"]],

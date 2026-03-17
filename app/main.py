@@ -10,7 +10,7 @@ from app.ai.workflows import (
     coding_graph,
     testing_graph,
     architecture_graph,
-    main_workflow,
+    main_graph,
 )
 from app.api.v1.routers import sandbox_router
 from logging import Logger
@@ -61,7 +61,7 @@ add_langgraph_fastapi_endpoint(
     agent=LangGraphAGUIAgent(
         name="architecture_agent",
         description="",
-        graph=main_workflow,
+        graph=main_graph,
         config={
             "recursion_limit": 100,
         },

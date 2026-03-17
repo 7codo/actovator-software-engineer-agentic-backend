@@ -64,7 +64,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
 
     async def execute_shell_command(
         command: str,
-        user: str = "root",
+        user: str = "user",
         cwd: str | None = None,
         background: bool = False,
     ):
@@ -173,3 +173,15 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         "read_file": read_file,
         "get_host_url": get_host_url,
     }
+
+
+async def sandbox_handler():
+    sandbox_tools = build_sandbox_tools("imkjh7qihj3dbermnnrmu")
+
+    
+    result = await sandbox_tools["get_host_url"](8000)
+    print(result)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(sandbox_handler())

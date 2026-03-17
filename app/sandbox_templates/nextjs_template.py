@@ -5,7 +5,7 @@ Notes:
 - then, we run the FastAPI app using: uv run serena-server --project PROJECT_PATH
 """
 
-from e2b import Template, default_build_logger
+from e2b import Template, default_build_logger, wait_for_url, wait_for_port
 from app.constants import PROJECT_PATH
 from app.core.config import settings
 
@@ -116,9 +116,11 @@ template = (
     .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
     .run_cmd(run_init_next_script_cmd())
     .run_cmd(write_tech_stack_json_cmd())
-    .run_cmd('pm2 start npm --name "project" -- run dev')
-    .set_workdir("/home/user/serena")
-    .run_cmd(f'pm2 start uv --name "serena" -- serena-server --project {PROJECT_PATH}')
+.set_start_cmd(
+    f'pm2 start npm --name "project" -- run dev ; '
+    f'pm2 start uv --name "serena" -- run --directory /home/user/serena serena-server --project {PROJECT_PATH}',
+    wait_for_url("http://localhost:3000"),
+)
 )
 
 Template.build(
