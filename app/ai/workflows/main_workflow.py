@@ -1,6 +1,6 @@
 import httpx
 from typing import Optional
-
+from deepagents.backends.utils import create_file_data
 from deepagents import create_deep_agent
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.checkpoint.memory import InMemorySaver
@@ -11,6 +11,8 @@ from app.ai.prompts import COIL_FRAMEWORK_PROMPT
 from app.ai.tools.sandbox_tools import build_sandbox_tools
 from app.ai.utils import build_model
 from app.constants import DEFAULT_MODEL_PROVIDER, DEFAULT_MODEL_ID
+from app.ai.skills import SERENA_TOOLS_USAGE_SKILL
+
 
 
 async def get_available_api_tools(
@@ -48,10 +50,14 @@ def _require_sandbox_id(state: State) -> str:
         raise ValueError("sandbox_id is required!")
     return sandbox_id
 
+skills_files = {
+    "name": SERENA_TOOLS_USAGE_SKILL
+}
+
 
 async def main_node(state: State, config: RunnableConfig) -> dict:
 
-    sandbox_id = _require_sandbox_id(state, "mini_docs_creation_step")
+    sandbox_id = _require_sandbox_id(state)
     model_provider = state.get("model_provider") or DEFAULT_MODEL_PROVIDER
     model_id = state.get("model_id") or DEFAULT_MODEL_ID
 
@@ -62,7 +68,7 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
     tools_api_base_url = await sandbox_tools["get_host_url"](8000)
     print("tools_api_base_url", tools_api_base_url)
     available_api_tools = await get_available_api_tools(
-        tools_api_base_url["url"], allowed_tools=["read_file", "list_file"]
+        tools_api_base_url["url"], excluded_tools=["execute_shell_command"]
     )
 
     # Compose system prompt.
@@ -74,10 +80,14 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
         # Escape { and } so PromptTemplate doesn't treat them as variables
         return json.dumps(tools, indent=2)
 
+    
+    available_skills
     print("dump_tools(available_api_tools)", dump_tools(available_api_tools))
     system_message = PromptTemplate.from_template(COIL_FRAMEWORK_PROMPT).format(
         available_api_tools=dump_tools(available_api_tools),
         available_bash_commands="No bash commands related to this task",
+        tools_api_base_url=tools_api_base_url["url"],
+        available_skills=
     )
     print("system_message", system_message[:5])
     # Create and run deep agent
@@ -85,9 +95,10 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
         model=model,
         system_prompt=system_message,
         tools=[sandbox_tools["create_run_bash_script"]],
+         
     )
     result = await agent.ainvoke(
-        {"messages": state.get("messages", [])},
+        {"messages": state.get("messages", []),  "files": skills_files},
         config=config,
     )
 
@@ -101,3 +112,6 @@ main_workflow.add_edge(START, "main_node")
 main_workflow.add_edge("main_node", END)
 checkpointer = InMemorySaver()
 main_graph = main_workflow.compile(checkpointer=checkpointer)
+
+if __name__ == "__main__":
+    print(SERENA_TOOLS_USAGE_SKILL) ## it printed

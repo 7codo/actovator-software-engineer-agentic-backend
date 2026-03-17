@@ -53,7 +53,7 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
     return sandbox.sandbox_id
 
 
-async def get_sandbox_host_url(sandbox_id: str):
+async def get_sandbox_host_url(sandbox_id: str, port: int):
     """
     Connects to a sandbox by its ID and retrieves the host URL for port 3000.
 
@@ -66,7 +66,7 @@ async def get_sandbox_host_url(sandbox_id: str):
     sandbox = await AsyncSandbox.connect(
         sandbox_id=sandbox_id, api_key=settings.e2b_api_key
     )
-    host = sandbox.get_host(3000)
+    host = sandbox.get_host(port)
     url = f"https://{host}"
     return url
 

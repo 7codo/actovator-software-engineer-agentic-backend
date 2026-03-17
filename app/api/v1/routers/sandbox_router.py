@@ -32,12 +32,12 @@ async def create_sandbox(github_token: str):
 
 
 @router.get("/host/{sandbox_id}", summary="Get the host URL for a sandbox")
-async def get_host(sandbox_id: str):
+async def get_host(sandbox_id: str, port: int):
     """
     Retrieves the host URL for a given sandbox ID.
     """
     try:
-        url = await get_sandbox_host_url(sandbox_id)
+        url = await get_sandbox_host_url(sandbox_id, port)
         return {"url": url}
     except e2b.exceptions.NotFoundException:
         raise HTTPException(
