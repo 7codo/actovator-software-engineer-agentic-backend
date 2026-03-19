@@ -3,6 +3,8 @@ from langchain_openai import AzureChatOpenAI
 from app.core.config import settings
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_openai import ChatOpenAI
+from langchain_azure_ai.chat_models import AzureAIChatCompletionsModel
+
 
 gemini_3_pro = ChatGoogleGenerativeAI(
     model="gemini-3-pro-preview",
@@ -52,6 +54,13 @@ gemini_2_5_pro = (
 #     temperature=1,
 # )
 
+kimi = AzureAIChatCompletionsModel(
+    model_name="Kimi-K2.5",
+    # api_version="2024-05-01-preview",
+    endpoint=settings.azure_endpoint,
+    api_key=settings.azure_api_key
+)
+
 glm5 = ChatNVIDIA(
   model="z-ai/glm5",
   api_key=settings.nvidia_api_key,
@@ -89,9 +98,5 @@ gpt5 = ChatOpenAI(
 
 
 if __name__ == "__main__":
-    for chunk in gpt5.stream([{"role":"user","content":"Hi"}]):
-  
-        if chunk.additional_kwargs and "reasoning_content" in chunk.additional_kwargs:
-            print(chunk.additional_kwargs["reasoning_content"], end="")
-        
-        print(chunk.content, end="")
+    result = kimi.invoke([{"role": "user", "content": "Hello, how are you?"}])    
+    print(result)

@@ -102,6 +102,38 @@ When using `find_symbol`, `replace_symbol_body`, `insert_after_symbol`, etc., yo
 - Absolute path: `"/MyClass/my_method"` — requires an exact full match within the file
 
 For overloaded methods (e.g. in Java), append a 0-based index: `"MyClass/my_method[1]"`
+
+---
+
+## Acceptance Criteria
+
+A correct application of this skill satisfies all of the following:
+
+### Tool Selection
+- [ ] Uses symbolic editing tools (`replace_symbol_body`, `insert_after_symbol`, etc.) when the target is a whole symbol — never for partial in-symbol changes
+- [ ] Uses `replace_content` for surgical edits within a symbol — never replaces an entire symbol just to change two lines
+- [ ] Does not reach for `read_file` on a whole file when `find_symbol` or `get_symbols_overview` would suffice
+
+### Exploration Before Editing
+- [ ] Calls `get_symbols_overview` or `find_symbol` before editing any unfamiliar file
+- [ ] Does not begin making edits until an explicit edit has been requested by the user
+
+### Regex Usage (when using `replace_content` in regex mode)
+- [ ] Uses `.*?` (non-greedy) for middle-of-pattern wildcards, not `.*`
+- [ ] Does not begin or end a regex pattern with `.*`
+- [ ] Anchors patterns with distinctive surrounding text to avoid ambiguous matches
+- [ ] If a regex matches multiple locations unexpectedly, refines and retries rather than forcing the replacement
+
+### Backward Compatibility
+- [ ] Either keeps changes backward-compatible, OR calls `find_referencing_symbols` and updates all affected call sites before completing the task
+
+### Trust and Verification
+- [ ] Does not re-read or re-verify a file after a successful symbolic tool call — trusts the tool's success response
+- [ ] Does not create new files unless there is a clear integration plan for them
+
+### Name Path Correctness
+- [ ] Uses absolute paths (`/ClassName/method`) when precision is required
+- [ ] Appends a 0-based index (e.g. `[1]`) when targeting overloaded methods
 ```
 
 ---

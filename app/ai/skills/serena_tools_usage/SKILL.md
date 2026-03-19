@@ -3,120 +3,74 @@ name: tools_usage
 description: Precise code editing and navigation skill using symbolic and file-based tools. Use this skill whenever working on a coding project — editing functions, classes, or methods; navigating a codebase; adding new code; refactoring; or understanding relationships between symbols. Trigger this skill for any task involving read_file, find_symbol, replace_symbol_body, replace_content, insert_after_symbol, find_referencing_symbols, or similar code/LSP/file tools.
 ---
 
-# Coding Tools Skill
+Use symbolic editing tools whenever possible for precise code modifications.
 
-This skill guides precise, reliable code editing using a set of symbolic and file-based tools.
+You have two main approaches for editing code: (a) editing at the symbol level and (b) file-based editing.
 
----
+The symbol-based approach is appropriate if you need to adjust an entire symbol, e.g. a method, a class, a function, etc.
 
-## General Principles
-
-Wait for an explicit editing task before making changes. Don't be overly eager — if the user hasn't asked you to edit anything yet, explore and understand the code first.
-
-When writing new code, think carefully about where it belongs. Don't create new files unless you have a clear plan to properly integrate them into the codebase.
-
----
+It is not appropriate if you need to adjust just a few lines of code within a larger symbol.
 
 ## Two Editing Approaches
 
-You have two main approaches. Choose based on the scope of the change:
+### 1. Symbolic Editing — Replace or Insert Whole Symbols
 
-### 1. Symbolic Editing — for replacing or adding whole symbols
+Use when modifying an **entire** symbol (function, method, class). Not for tweaking a few lines inside one.
 
-Use this when you need to replace an entire symbol (a method, class, function, etc.), or insert new code at a specific location relative to a symbol.
+**Tools:**
+| Tool | Use for |
+|---|---|
+| `find_symbol` | Locate a symbol before editing |
+| `replace_symbol_body` | Replace a full symbol definition |
+| `insert_after_symbol` | Add code after a symbol (use the last top-level symbol to append to a file) |
+| `insert_before_symbol` | Add code before a symbol (use the first to prepend to a file) |
+| `find_referencing_symbols` | Find callers/dependents before making breaking changes |
 
-**Key tools:**
-- `find_symbol` — locate a symbol by name path before editing it
-- `replace_symbol_body` — replace the full definition of a symbol
-- `insert_after_symbol` — add new code after the last symbol in a file (or any symbol)
-- `insert_before_symbol` — add new code before the first symbol in a file (or any symbol)
-- `find_referencing_symbols` — understand what other code depends on a symbol before changing it
+**Backward compatibility:** Either keep changes backward-compatible, or use `find_referencing_symbols` to locate and update all affected call sites. Results include code snippets and symbolic metadata.
 
-**When to use symbolic editing:**
-- Replacing an entire method or function
-- Adding a new method to a class
-- Appending or prepending new top-level code to a file
-
-**When NOT to use it:**
-- When you only need to change a few lines *inside* a larger symbol — use file-based editing instead
-
-**Backward compatibility:** Unless the user says otherwise, when you edit a symbol, either keep the change backward-compatible or use `find_referencing_symbols` to find and update all call sites. The tool gives you code snippets around each reference and symbolic metadata to help you do this efficiently.
-
-You can trust the symbolic editing tools — if they return without error, the edit succeeded. No need to verify.
+> Symbolic tools are reliable — if they return without error, the edit succeeded. No need to verify.
 
 ---
 
-### 2. File-Based Editing — for targeted in-place changes
+### 2. File-Based Editing — Surgical In-Place Changes
 
-Use this when you need to change just a few lines *within* a symbol, rather than replacing the whole thing. This is your primary tool for small, surgical edits.
+Use when changing **a few lines within** a symbol rather than replacing the whole thing.
 
-**Key tool:** `replace_content`
-
-This tool supports both literal string replacement and **regex-based replacement**. Prefer regex mode — it lets you replace large sections without quoting them verbatim, using wildcards to match the parts that vary.
+**Tool:** `replace_content` — supports literal string and **regex** replacements.
 
 **Regex tips:**
-- Use `.*?` (non-greedy) in the middle of patterns to avoid over-matching
-- Anchor with distinctive surrounding text to avoid ambiguous matches
-- Never use `.*` at the start or end of a pattern — it's rarely needed and often harmful
-- If the regex matches multiple spots and `allow_multiple_occurrences` is false, an error is returned — refine and retry
-
-You're highly skilled at regex. Trust yourself to write effective patterns without needing to verify the result afterward.
+- Prefer regex mode to avoid quoting large blocks verbatim
+- Use `.*?` (non-greedy) to match variable middle sections
+- Anchor patterns with distinctive surrounding text to avoid ambiguous matches
+- Avoid leading/trailing `.*` — it's rarely needed and often harmful
+- If a pattern matches multiple spots and `allow_multiple_occurrences` is false, an error is returned — refine and retry
 
 ---
 
-## Exploration and Navigation
+## Exploration Tools
 
-Before editing unfamiliar code, orient yourself:
+Orient yourself before editing unfamiliar code:
 
-- `get_symbols_overview` — get a high-level map of a file's symbols; use this first when exploring a new file
-- `read_file` — read a file or range of lines; use when you need to see exact content
-- `find_symbol` — locate a specific symbol by name path; faster and more precise than reading whole files
-- `search_for_pattern` — search across the codebase for arbitrary patterns; useful for finding usages, config values, or non-code content
-- `find_file` — locate files by name or wildcard mask
-- `list_dir` — browse the directory structure
+| Tool | Use for |
+|---|---|
+| `get_symbols_overview` | High-level map of a file's symbols — start here |
+| `read_file` | Read a file or line range for exact content |
+| `find_symbol` | Locate a specific symbol by name path |
+| `search_for_pattern` | Search the codebase for patterns, usages, or config values |
+| `find_file` | Locate files by name or wildcard |
+| `list_dir` | Browse directory structure |
 
 Prefer symbolic tools over reading whole files when you know what you're looking for.
 
 ---
 
-## Name Path Patterns
+## Name Path Syntax
 
-When using `find_symbol`, `replace_symbol_body`, `insert_after_symbol`, etc., you identify symbols using *name paths*:
+Used in `find_symbol`, `replace_symbol_body`, `insert_after_symbol`, etc.:
 
-- Simple name: `"my_function"` — matches any symbol with that name
-- Relative path: `"MyClass/my_method"` — matches any symbol with that name path suffix
-- Absolute path: `"/MyClass/my_method"` — requires an exact full match within the file
-
-For overloaded methods (e.g. in Java), append a 0-based index: `"MyClass/my_method[1]"`
-
----
-
-## Acceptance Criteria
-
-A correct application of this skill satisfies all of the following:
-
-### Tool Selection
-- [ ] Uses symbolic editing tools (`replace_symbol_body`, `insert_after_symbol`, etc.) when the target is a whole symbol — never for partial in-symbol changes
-- [ ] Uses `replace_content` for surgical edits within a symbol — never replaces an entire symbol just to change two lines
-- [ ] Does not reach for `read_file` on a whole file when `find_symbol` or `get_symbols_overview` would suffice
-
-### Exploration Before Editing
-- [ ] Calls `get_symbols_overview` or `find_symbol` before editing any unfamiliar file
-- [ ] Does not begin making edits until an explicit edit has been requested by the user
-
-### Regex Usage (when using `replace_content` in regex mode)
-- [ ] Uses `.*?` (non-greedy) for middle-of-pattern wildcards, not `.*`
-- [ ] Does not begin or end a regex pattern with `.*`
-- [ ] Anchors patterns with distinctive surrounding text to avoid ambiguous matches
-- [ ] If a regex matches multiple locations unexpectedly, refines and retries rather than forcing the replacement
-
-### Backward Compatibility
-- [ ] Either keeps changes backward-compatible, OR calls `find_referencing_symbols` and updates all affected call sites before completing the task
-
-### Trust and Verification
-- [ ] Does not re-read or re-verify a file after a successful symbolic tool call — trusts the tool's success response
-- [ ] Does not create new files unless there is a clear integration plan for them
-
-### Name Path Correctness
-- [ ] Uses absolute paths (`/ClassName/method`) when precision is required
-- [ ] Appends a 0-based index (e.g. `[1]`) when targeting overloaded methods
+| Pattern | Meaning |
+|---|---|
+| `"my_function"` | Any symbol with that name |
+| `"MyClass/my_method"` | Any symbol matching that suffix path |
+| `"/MyClass/my_method"` | Exact full path match |
+| `"MyClass/my_method[1]"` | Second overload (0-based index) |

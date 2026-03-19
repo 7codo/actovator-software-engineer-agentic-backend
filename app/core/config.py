@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     e2b_api_key: str = ""
     nvidia_api_key: str = ""
     github_token: str = ""
+    azure_api_key: str = ""
+    azure_endpoint: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env.local", env_file_encoding="utf-8", case_sensitive=False

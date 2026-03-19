@@ -1,4 +1,5 @@
 import hashlib
+import json
 import textwrap
 from datetime import datetime
 
@@ -177,9 +178,80 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             "exit_code": result.exit_code,
         }
 
+    # @tool
+    async def execute_tool(
+        tool_name: str,
+        tool_params: dict,
+    ) -> dict:
+        """
+        Execute a tool via the Tools API using a POST request.
+
+        Args:
+            tool_name: The name of the tool to execute.
+            tool_params: Dictionary of parameters to pass to the tool.
+
+        Returns:
+            {
+                "stdout": str,    # The response body from the tool execution.
+                "stderr": str,    # Error message if execution failed.
+                "exit_code": int, # 0 for success, non-zero for failure.
+            }
+        """
+        payload = json.dumps(tool_params)
+        # Create a unique path for the payload file
+        digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
+        payload_path = f"/tmp/payload_{digest}.json"
+
+        try:
+            # 1. Write payload to file to avoid shell quoting issues
+            sandbox = await _get_sandbox()
+            await sandbox.files.write(payload_path, payload)
+
+            # 2. Run curl command
+            # -s: Silent mode
+            # -f: Fail silently (server errors return exit code 22)
+            # -X POST: HTTP POST method
+            host_result = await get_host_url(8000)
+            tools_api_base_url = host_result["url"]
+            base_url = tools_api_base_url.rstrip("/")
+            url = f"{base_url}/tools/{tool_name}"
+            
+            command = (
+                f"curl -sf -X POST {url} "
+                f"-H 'Content-Type: application/json' "
+                f"-d '@{payload_path}'"
+            )
+
+            result = await execute_shell_command(command, cwd=PROJECT_PATH)
+
+            return {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.exit_code,
+            }
+        except Exception as e:
+            return _shell_error(f"Failed to execute tool '{tool_name}'", e)
+        finally:
+            # 3. Clean up payload file
+            try:
+                # Ensure sandbox is available or just use shell rm
+                await execute_shell_command(f"rm -f {payload_path}")
+            except Exception:
+                pass
+
     return {
         "run_bash_script": run_bash_script,
         "execute_shell_command": execute_shell_command,
         "read_file": read_file,
         "get_host_url": get_host_url,
+        "execute_tool": execute_tool,
     }
+
+async def test():
+    sandbox_tools = build_sandbox_tools("im74m3gz6bpyyq4sn7qk7")
+    result = await sandbox_tools["execute_tool"](tool_name="read_file", tool_params={"relative_path": "package.json"})
+    print(result)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(test())

@@ -63,9 +63,7 @@ async def _wire_system_prompt(system_prompt: str, tools_api_base_url: str) -> Tu
     # 3. Format prompt with the lite catalog
     formatted_prompt = PromptTemplate.from_template(system_prompt).format(
         api_tools_catalog=json.dumps(api_tools_catalog_lite, indent=2),
-        tools_api_base_url=tools_api_base_url,
         api_tools_guidance=skill_by_name.get("tools_usage"),
-        project_path=PROJECT_PATH,
     )
     
     # 4. Return both the prompt and the full catalog
@@ -138,19 +136,6 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
 
     sandbox_tools = build_sandbox_tools(sandbox_id)
     tools_api_base_url: str = (await sandbox_tools["get_host_url"](8000))["url"]
-
-    # Wire verification prompt (passing lite catalog to prompt)
-    verification_system_message, verification_catalog = await _wire_system_prompt(COIL_VERIFICATION_PROMPT, tools_api_base_url)
-    with open("verificatio_system_message.md", "w") as f:
-        f.write(verification_system_message + "\n")
-        
-    verification_tool = await _build_verification_tool(
-        model=model,
-        bash_tool=sandbox_tools["run_bash_script"],
-        system_message=verification_system_message,
-    )
-
-    # Wire main prompt (passing lite catalog to prompt, retaining full catalog)
     main_system_message, main_catalog = await _wire_system_prompt(COIL_FRAMEWORK_PROMPT, tools_api_base_url)
     with open("main_system_message.md", "w") as f:
         f.write(main_system_message + "\n")
@@ -162,9 +147,8 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
         model=model,
         system_prompt=main_system_message,
         tools=[
-            sandbox_tools["run_bash_script"], 
-            verification_tool,
-            get_params_tool  # Add the new tool here
+            sandbox_tools["execute_tool"], 
+            get_params_tool 
         ],
     )
 
