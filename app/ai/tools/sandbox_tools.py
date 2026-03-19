@@ -109,20 +109,24 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             return {"url": None, "port": port, "error": f"[{type(e).__name__}] {e}"}
 
     @tool
-    async def create_run_bash_script(
+    async def run_bash_script(
         script_content: str,
-        script_name: str = "",
+        script_name: str | None = None,
         timeout: int = 60,
     ) -> dict:
         """
-        Write a bash script, then execute it. Prepends a shebang if missing.
+        Execute a bash script inside the sandbox and return its output.
+        The script is written to disk, run, and deleted automatically.
+        A shebang and `set -euo pipefail` are prepended when absent.
+
         Args:
             script_content: Full bash script body.
             script_name:    Filename stem (no .sh extension). Auto-generated when omitted.
             timeout:        Hard kill timeout in seconds (default 60).
+
         Returns:
             {
-                "script_path": str,
+                "script_path": str,   # path used during execution (already deleted)
                 "stdout":      str,
                 "stderr":      str,
                 "exit_code":   int,
@@ -152,13 +156,19 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         except Exception as e:
             return _shell_error(f"Failed to chmod {script_path}", e)
 
-        # 7. Run script
+        # 7. Run script, always delete it afterwards
         try:
             result = await execute_shell_command(
                 f"timeout {timeout} bash {script_path}", cwd=_ACTOVATOR_PATH
             )
         except Exception as e:
             return _shell_error(f"Failed to execute {script_path}", e)
+        finally:
+            # 8. Delete the script regardless of execution outcome
+            try:
+                await execute_shell_command(f"rm -f {script_path}", cwd=_ACTOVATOR_PATH)
+            except Exception:
+                pass  # Deletion failure is non-fatal
 
         return {
             "script_path": script_path,
@@ -168,20 +178,8 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         }
 
     return {
-        "create_run_bash_script": create_run_bash_script,
+        "run_bash_script": run_bash_script,
         "execute_shell_command": execute_shell_command,
         "read_file": read_file,
         "get_host_url": get_host_url,
     }
-
-
-async def sandbox_handler():
-    sandbox_tools = build_sandbox_tools("imkjh7qihj3dbermnnrmu")
-
-    
-    result = await sandbox_tools["get_host_url"](8000)
-    print(result)
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(sandbox_handler())

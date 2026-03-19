@@ -93,16 +93,18 @@ def build_skills_index(skills_files: list[str]):
     Skills missing a valid `name` are ignored.
     """
     by_name: dict[str, str] = {}
+    index = []
 
     for content in skills_files:
         metadata, body = parse_frontmatter_cached(content)
+        index.append(metadata)
         name = metadata.get("name")
         if not isinstance(name, str) or not name.strip():
             continue
         key = name.strip()
         by_name[key] = body
 
-    return by_name
+    return by_name, index
 
 
 # md = """\

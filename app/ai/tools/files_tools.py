@@ -14,7 +14,7 @@ def load_agent_browser_commands_ref() -> str:
 
 
 skills_files = [SERENA_TOOLS_USAGE_SKILL]
-skills_by_name = build_skills_index(skills_files)
+skill_by_name, _ = build_skills_index(skills_files)
 
 
 @tool
@@ -23,5 +23,5 @@ def load_skill(name: str) -> str:
     Loads and returns specific skill
     Use this tool when you want to read a skill
     """
-    body = skills_by_name.get(name)
+    body = skill_by_name.get(name)
     return body or "No skills found with this name"
