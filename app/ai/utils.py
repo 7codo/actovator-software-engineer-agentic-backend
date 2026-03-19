@@ -9,7 +9,7 @@ Provider = Literal["google_genai",]
 
 ModelId = Literal[
     "gemini-3-pro-preview",
-    "gemini-3-flash-preview", #It's hallucianite
+    "gemini-3-flash-preview",  # It's hallucianite
 ]
 
 
@@ -24,8 +24,5 @@ def build_model(
     # Validate input using Pydantic
     conf = _Model(model_id=model_id, provider=provider)
     return init_chat_model(
-        model=conf.model_id,
-    model_provider=conf.provider,
-    
-    temperature=0
+        model=conf.model_id, model_provider=conf.provider, temperature=0
     )

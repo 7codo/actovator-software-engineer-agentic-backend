@@ -10,7 +10,6 @@ from langchain_core.tools import BaseTool
 from app.constants import PROJECT_PATH
 from app.core.config import settings
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -56,8 +55,7 @@ def _shell_error(context: str, exc: Exception) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
-
+def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
     async def _get_sandbox() -> AsyncSandbox:
         return await AsyncSandbox.connect(
             sandbox_id=sdbx_id, api_key=settings.e2b_api_key
@@ -69,7 +67,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         cwd: str | None = None,
         background: bool = False,
     ):
-        """Run an arbitrary shell command inside the sandbox and return the result object."""
+        """Run a shell command inside the sandbox and return the result object."""
         try:
             sandbox = await _get_sandbox()
             return await sandbox.commands.run(
@@ -86,8 +84,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         """Read a file's content from the sandbox."""
         try:
             sandbox = await _get_sandbox()
-            file_content = await sandbox.files.read(path)
-            return file_content
+            return await sandbox.files.read(path)
         except Exception as e:
             raise RuntimeError(
                 f"read_file failed.\nReason: {type(e).__name__}: {e}"
@@ -95,7 +92,6 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
 
     async def get_host_url(port: int = 8000) -> dict:
         """Return the public HTTPS URL exposed by the sandbox on the given port.
-
         Args:
             port: The sandbox port to expose (default 8000).
 
@@ -133,17 +129,15 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
                 "exit_code":   int,
             }
         """
-        # 1. Normalize content
+        # Normalize script content and name
         content = _add_shebang(textwrap.dedent(script_content).strip())
-
-        # 2/3. Resolve name/digest
         digest = _content_digest(content)
         if not script_name:
             script_name, digest = _make_script_name(content)
         script_name = script_name.removesuffix(".sh")
         script_path = f"bashs/{script_name}.sh"
 
-        # 4/5. Write via heredoc
+        # Write script to sandbox
         try:
             delimiter = f"HEREDOC_{hashlib.sha1(script_name.encode()).hexdigest()[:8]}"
             write_cmd = f"cat > {script_path} << '{delimiter}'\n{content}\n{delimiter}"
@@ -151,13 +145,13 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         except Exception as e:
             return _shell_error(f"Failed to write script to {script_path}", e)
 
-        # 6. Make executable
+        # Make script executable
         try:
             await execute_shell_command(f"chmod +x {script_path}", cwd=_ACTOVATOR_PATH)
         except Exception as e:
             return _shell_error(f"Failed to chmod {script_path}", e)
 
-        # 7. Run script, always delete it afterwards
+        # Run the script, then delete it
         try:
             result = await execute_shell_command(
                 f"timeout {timeout} bash {script_path}", cwd=_ACTOVATOR_PATH
@@ -165,7 +159,6 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         except Exception as e:
             return _shell_error(f"Failed to execute {script_path}", e)
         finally:
-            # 8. Delete the script regardless of execution outcome
             try:
                 await execute_shell_command(f"rm -f {script_path}", cwd=_ACTOVATOR_PATH)
             except Exception:
@@ -173,12 +166,11 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
 
         return {
             "script_path": script_path,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.exit_code,
+            "stdout": getattr(result, "stdout", ""),
+            "stderr": getattr(result, "stderr", ""),
+            "exit_code": getattr(result, "exit_code", 1),
         }
 
-    # @tool
     async def execute_tool(
         tool_name: str,
         tool_params: dict,
@@ -198,24 +190,23 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             }
         """
         payload = json.dumps(tool_params)
-        # Create a unique path for the payload file
         digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
         payload_path = f"/tmp/payload_{digest}.json"
 
         try:
-            # 1. Write payload to file to avoid shell quoting issues
             sandbox = await _get_sandbox()
             await sandbox.files.write(payload_path, payload)
 
-            # 2. Run curl command
-            # -s: Silent mode
-            # -f: Fail silently (server errors return exit code 22)
-            # -X POST: HTTP POST method
             host_result = await get_host_url(8000)
             tools_api_base_url = host_result["url"]
+            if not tools_api_base_url:
+                return {
+                    "stdout": "",
+                    "stderr": f"Could not get tools API base URL: {host_result.get('error')}",
+                    "exit_code": 1,
+                }
             base_url = tools_api_base_url.rstrip("/")
             url = f"{base_url}/tools/{tool_name}"
-            
             command = (
                 f"curl -sf -X POST {url} "
                 f"-H 'Content-Type: application/json' "
@@ -223,18 +214,15 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
             )
 
             result = await execute_shell_command(command, cwd=PROJECT_PATH)
-
             return {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "exit_code": result.exit_code,
+                "stdout": getattr(result, "stdout", ""),
+                "stderr": getattr(result, "stderr", ""),
+                "exit_code": getattr(result, "exit_code", 1),
             }
         except Exception as e:
             return _shell_error(f"Failed to execute tool '{tool_name}'", e)
         finally:
-            # 3. Clean up payload file
             try:
-                # Ensure sandbox is available or just use shell rm
                 await execute_shell_command(f"rm -f {payload_path}")
             except Exception:
                 pass
@@ -247,11 +235,17 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool]:
         "execute_tool": execute_tool,
     }
 
+
+# Test and demo code
 async def test():
     sandbox_tools = build_sandbox_tools("im74m3gz6bpyyq4sn7qk7")
-    result = await sandbox_tools["execute_tool"](tool_name="read_file", tool_params={"relative_path": "package.json"})
+    result = await sandbox_tools["execute_tool"](
+        tool_name="read_file", tool_params={"relative_path": "package.json"}
+    )
     print(result)
+
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(test())
