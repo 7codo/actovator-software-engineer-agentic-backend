@@ -1,17 +1,9 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import AzureChatOpenAI
 from app.core.config import settings
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_openai import ChatOpenAI
-from langchain_azure_ai.chat_models.inference import AzureAIChatCompletionsModel
 
 
-# kimi = AzureAIChatCompletionsModel(
-#     model_name="Kimi-K2.5",
-#     # api_version="2024-05-01-preview",
-#     endpoint=settings.azure_endpoint,
-#     api_key=settings.azure_api_key,
-# )
 
 gemini_3_pro = ChatGoogleGenerativeAI(
     model="gemini-3-pro-preview",
@@ -52,21 +44,6 @@ gemini_2_5_pro = (
     )
 )
 
-kimi = AzureChatOpenAI(  ## It miss following instructions
-    azure_endpoint=settings.azure_endpoint,
-    api_key=settings.azure_api_key,  # https://actovator-coding-agent-resource.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview
-    api_version="2024-05-01-preview",
-    azure_deployment="DeepSeek-V3.2",
-    name="DeepSeek-V3.2",
-    temperature=1,
-)
-
-# kimi = AzureAIChatCompletionsModel(
-#     model_name="Kimi-K2.5",
-#     # api_version="2024-05-01-preview",
-#     endpoint=settings.azure_endpoint,
-#     api_key=settings.azure_api_key,
-# )
 
 glm5 = ChatNVIDIA(
     model="z-ai/glm5",
@@ -106,5 +83,5 @@ gpt5 = ChatOpenAI(
 
 
 if __name__ == "__main__":
-    result = kimi.invoke("Hello, how are you?")
+    result = deepseek_v3_2.invoke("Hello, how are you?")
     print(result)
