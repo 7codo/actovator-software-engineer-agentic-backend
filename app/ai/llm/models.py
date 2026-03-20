@@ -9,6 +9,7 @@ Provider = Literal["google_genai",]
 
 ModelId = Literal[
     "gemini-3-pro-preview",
+    "gemini-pro-latest",
     "gemini-3-flash-preview",  # It's hallucianite
 ]
 

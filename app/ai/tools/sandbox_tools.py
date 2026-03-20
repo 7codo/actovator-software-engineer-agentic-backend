@@ -105,6 +105,41 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
         except Exception as e:
             return {"url": None, "port": port, "error": f"[{type(e).__name__}] {e}"}
 
+    async def get_server_logs(lines_count: int = 25) -> str:
+        """Query the agent's training knowledge for the last fully known version of a package.
+
+        Args:
+            package: The name of the package to query (e.g. "langchain", "fastapi").
+
+        Returns:
+            The last known version string in x.x.x format.
+        """
+
+        try:
+            
+            result = await execute_shell_command(
+                f"pm2 logs project --raw --time --lines {lines_count} --nostream"
+            )
+        except Exception as e:
+            return f"[{type(e).__name__}] Failed to fetch server logs: {e}"
+
+        skip_prefixes = ("[TAILING]", "/home/user/.pm2/logs/")
+        lines = [
+            line
+            for line in result.stdout.splitlines()
+            if not any(line.startswith(p) for p in skip_prefixes)
+        ]
+        return "\n".join(lines).strip()
+    
+    async def get_lint_checks() -> str:
+        """Run ESLint on the Next.js project and return the results."""
+        try:
+            sandbox = await _get_sandbox()
+            result = await execute_shell_command("npm run lint", cwd=PROJECT_PATH)
+            return result.stdout
+        except Exception as e:
+            return f"[{type(e).__name__}] Failed to run lint checks: {e}"
+
     @tool
     async def run_bash_script(
         script_content: str,
@@ -170,7 +205,8 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
             "stderr": getattr(result, "stderr", ""),
             "exit_code": getattr(result, "exit_code", 1),
         }
-
+    
+    @tool
     async def execute_tool(
         tool_name: str,
         tool_params: dict,
@@ -208,9 +244,10 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
             base_url = tools_api_base_url.rstrip("/")
             url = f"{base_url}/tools/{tool_name}"
             command = (
-                f"curl -sf -X POST {url} "
+                f"curl -sS -X POST {url} "          
                 f"-H 'Content-Type: application/json' "
                 f"-d '@{payload_path}'"
+                f"; echo \"HTTP_STATUS:$?\""         
             )
 
             result = await execute_shell_command(command, cwd=PROJECT_PATH)
@@ -233,6 +270,8 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
         "read_file": read_file,
         "get_host_url": get_host_url,
         "execute_tool": execute_tool,
+        "get_server_logs": get_server_logs,
+        "get_lint_checks": get_lint_checks,
     }
 
 

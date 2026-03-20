@@ -87,6 +87,9 @@ Never retry an identical failing call — every retry must change something base
 - If any catalog tool covers the action, you MUST use that tool. First call `get_params_tool` to get its parameters, then invoke it via `execute_tool`.
 - Never modify state in Phase 1.
 - After completing the task and before any final response, you must start verification by calling `start_verification_process`.
+- Do not call `get_params_tool` for `start_verification_process`; its parameters are derived from `user_task` and `execution_result`.
+- Use symbolic editing tools whenever possible for precise code modifications.
+
 
 ## Acceptance Criteria
 
@@ -114,7 +117,9 @@ Never retry an identical failing call — every retry must change something base
 - [ ] Before invoking any tool via `execute_tool`, the agent first calls `get_params_tool` to retrieve that tool's parameter schema
 - [ ] The agent never calls `execute_tool` with guessed or assumed parameters
 - [ ] If a catalog tool exists that covers the intended action, the agent **must** use it — direct state modification outside of tools is not permitted
-- [ ] After completing the task, the agent always calls `start_verification_process` with the documented arguments to begin verification.
+- [ ] Use symbolic editing tools whenever possible for precise code modifications
+- [ ] Do not call `get_params_tool` for `start_verification_process`; its parameters are derived from `user_task` and `execution_result`
+- [ ] After completing the task, the agent always calls `start_verification_process` with the documented arguments to begin verification
 
 ---
 

@@ -271,11 +271,13 @@ async def main_node(state: State, config: RunnableConfig) -> dict:
 
 async def verification_node(state: State, config: RunnableConfig) -> dict:
     sandbox_id = _require_sandbox_id(state)
-
+    print("verification...")
     model = build_model_from_state(state)
 
     sandbox_tools = build_sandbox_tools(sandbox_id)
     tools_api_base_url = (await sandbox_tools["get_host_url"](8000))["url"]
+    dev_server_logs = await sandbox_tools["get_server_logs"]()
+    lint_checks  = await sandbox_tools["get_lint_checks"]()
 
     api_tools_catalog = await get_available_api_tools(
         tools_api_base_url,
@@ -286,7 +288,6 @@ async def verification_node(state: State, config: RunnableConfig) -> dict:
             "get_symbols_overview",
             "find_symbol",
             "find_referencing_symbols",
-            "execute_shell_command",
         ],
     )
     api_tools_catalog_lite = [
@@ -296,7 +297,13 @@ async def verification_node(state: State, config: RunnableConfig) -> dict:
         CODE_EDITOR_VERIFICATION_PROMPT
     ).format(
         api_tools_catalog=json.dumps(api_tools_catalog_lite, indent=2),
+        lint_checks=lint_checks,
+        dev_server_logs=dev_server_logs,
     )
+    # with open("verification_prompt.md", "w") as f:
+    #     f.write(formatted_prompt)
+
+    # raise Exception("error")
     get_params_tool = _build_get_tool_params_tool(api_tools_catalog)
 
     agent = create_agent(
@@ -313,13 +320,14 @@ async def verification_node(state: State, config: RunnableConfig) -> dict:
         {
             "messages": [
                 HumanMessage(
-                    f"Execution Result: {state.get('execution_result')}\nUser Task: {state.get('user_task')}"
+                    f"Execute `list_dir` tool to test it out and stop immediatelly"
                 )
             ]
         },
         config=config,
     )
     verification_report = result["structured_response"]
+    print("verification_report", verification_report)
     return {"messages": result["messages"], "verification_report": verification_report}
 
 
@@ -329,17 +337,20 @@ async def verification_node(state: State, config: RunnableConfig) -> dict:
 
 
 def route_after_verification_step(state: State):
-    if isinstance(state.get("verification_report"), PassReport):
+    verification_report = state.get("verification_report")
+    print("route_after_verification_step>>verification_report", verification_report)
+    if isinstance(verification_report, PassReport):
         return END
-    elif isinstance(state.get("verification_report"), FailReport):
+    elif isinstance(verification_report, FailReport):
         return "main_node"
 
 
 coding_workflow = StateGraph(State)
 coding_workflow.add_node("main_node", main_node)
 coding_workflow.add_node("verification_node", verification_node)
-coding_workflow.add_edge(START, "main_node")
-coding_workflow.add_conditional_edge("verification_node", route_after_verification_step)
+coding_workflow.add_edge(START, "verification_node")
+coding_workflow.add_edge("verification_node", END)
+# coding_workflow.add_conditional_edges("verification_node", route_after_verification_step)
 
 checkpointer = InMemorySaver()
 coding_graph = coding_workflow.compile(checkpointer=checkpointer)

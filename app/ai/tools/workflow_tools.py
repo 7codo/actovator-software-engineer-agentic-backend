@@ -1,7 +1,7 @@
 from langchain.tools import tool, ToolRuntime
 from langgraph.types import Command
 from ag_ui_langgraph.agent import ToolMessage
-
+from langgraph.types import Command
 
 @tool
 def assign_prd_saving_completed(feature_path: str) -> str:
@@ -53,4 +53,5 @@ def start_verification_process(
             ],
         },
         goto="verification_node",
+        graph=Command.PARENT,
     )

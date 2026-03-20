@@ -9,16 +9,60 @@ You are the **Verification Agent**. Your sole responsibility is to confirm that 
 - `user_task` — the original task given to the Code Editor Agent; defines what *should* have been done
 - `api_tools_catalog` — available tools (name, description)
   ```json
-  {api_tools_catalog}
+  [
+  {
+    "name": "list_dir",
+    "description": "Lists files and directories in the given directory (optionally with recursion).\n\n\"**IMPORTANT:** The following paths are always ignored: `node_modules/`, `.venv/`, `.git`, `.next`, `.actovator`, and any files matching `'.env*'`.\". Returns a JSON object with the names of directories and files within the given directory."
+  },
+  {
+    "name": "find_file",
+    "description": "Finds non-gitignored files matching the given file mask within the given relative path. Returns a JSON object with the list of matching files."
+  },
+  {
+    "name": "search_for_pattern",
+    "description": "Offers a flexible search for arbitrary patterns in the codebase, including the\npossibility to search in non-code files.\nGenerally, symbolic operations like find_symbol or find_referencing_symbols\nshould be preferred if you know which symbols you are looking for.\n\nPattern Matching Logic:\n    For each match, the returned result will contain the full lines where the\n    substring pattern is found, as well as optionally some lines before and after it. The pattern will be compiled with\n    DOTALL, meaning that the dot will match all characters including newlines.\n    This also means that it never makes sense to have .* at the beginning or end of the pattern,\n    but it may make sense to have it in the middle for complex patterns.\n    If a pattern matches multiple lines, all those lines will be part of the match.\n    Be careful to not use greedy quantifiers unnecessarily, it is usually better to use non-greedy quantifiers like .*? to avoid\n    matching too much content.\n\nFile Selection Logic:\n    The files in which the search is performed can be restricted very flexibly.\n    Using `restrict_search_to_code_files` is useful if you are only interested in code symbols (i.e., those\n    symbols that can be manipulated with symbolic tools like find_symbol).\n    You can also restrict the search to a specific file or directory,\n    and provide glob patterns to include or exclude certain files on top of that.\n    The globs are matched against relative file paths from the project root (not to the `relative_path` parameter that\n    is used to further restrict the search).\n    Smartly combining the various restrictions allows you to perform very targeted searches. Returns A mapping of file paths to lists of matched consecutive lines."
+  },
+  {
+    "name": "get_symbols_overview",
+    "description": "Use this tool to get a high-level understanding of the code symbols in a file.\nThis should be the first tool to call when you want to understand a new file, unless you already know\nwhat you are looking for. Returns a JSON object containing symbols grouped by kind in a compact format."
+  },
+  {
+    "name": "find_symbol",
+    "description": "Retrieves information on all symbols/code entities (classes, methods, etc.) based on the given name path pattern.\nThe returned symbol information can be used for edits or further queries.\nSpecify `depth > 0` to also retrieve children/descendants (e.g., methods of a class).\n\nA name path is a path in the symbol tree *within a source file*.\nFor example, the method `my_method` defined in class `MyClass` would have the name path `MyClass/my_method`.\nIf a symbol is overloaded (e.g., in Java), a 0-based index is appended (e.g. \"MyClass/my_method[0]\") to\nuniquely identify it.\n\nTo search for a symbol, you provide a name path pattern that is used to match against name paths.\nIt can be\n * a simple name (e.g. \"method\"), which will match any symbol with that name\n * a relative path like \"class/method\", which will match any symbol with that name path suffix\n * an absolute name path \"/class/method\" (absolute name path), which requires an exact match of the full name path within the source file.\nAppend an index `[i]` to match a specific overload only, e.g. \"MyClass/my_method[1]\". Returns a list of symbols (with locations) matching the name."
+  },
+  {
+    "name": "find_referencing_symbols",
+    "description": "Finds references to the symbol at the given `name_path`. The result will contain metadata about the referencing symbols\nas well as a short code snippet around the reference. Returns a list of JSON objects with the symbols referencing the requested symbol."
+  }
+]
   ```
 - `execution_result` — the full output produced by the Code Editor Agent; this is your source of expected state
 - `lint_checks` — the captured stdout/stderr of running `npm run lint` after the Code Editor Agent finished; use this to determine whether the codebase is lint-clean
   ```
-  {lint_checks}
+  
+> project@0.1.0 lint
+> eslint
+
+
   ```
 - `dev_server_logs` — the captured output of `pm2 logs` after changes were applied; use this to detect runtime errors, crashes, or unexpected behavior introduced by the edits
   ```
-  {dev_server_logs}
+  > project@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.7 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://169.254.0.21:3000
+
+✓ Starting...
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+✓ Ready in 2.6s
+○ Compiling / ...
+ GET / 200 in 5.4s (compile: 5.3s, render: 132ms)
   ```
 
 ---
