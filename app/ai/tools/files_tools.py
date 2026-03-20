@@ -1,6 +1,6 @@
 from langchain.tools import tool
 
-from app.ai.skills import AGENT_BROWSER_COMMANDS_REF, SERENA_TOOLS_USAGE_SKILL
+from app.ai.skills import AGENT_BROWSER_COMMANDS_REF, CODE_EDITING_TOOLS_SKILL
 from app.utils.files_utils import build_skills_index
 
 
@@ -13,7 +13,7 @@ def load_agent_browser_commands_ref() -> str:
     return AGENT_BROWSER_COMMANDS_REF
 
 
-skills_files = [SERENA_TOOLS_USAGE_SKILL]
+skills_files = [CODE_EDITING_TOOLS_SKILL]
 skill_by_name, _ = build_skills_index(skills_files)
 
 

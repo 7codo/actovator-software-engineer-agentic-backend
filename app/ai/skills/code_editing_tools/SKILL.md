@@ -1,5 +1,5 @@
 ---
-name: tools_usage
+name: code_editing_tools
 description: Precise code editing and navigation skill using symbolic and file-based tools. Use this skill whenever working on a coding project — editing functions, classes, or methods; navigating a codebase; adding new code; refactoring; or understanding relationships between symbols. Trigger this skill for any task involving read_file, find_symbol, replace_symbol_body, replace_content, insert_after_symbol, find_referencing_symbols, or similar code/LSP/file tools.
 ---
 

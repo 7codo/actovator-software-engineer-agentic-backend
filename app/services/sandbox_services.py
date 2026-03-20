@@ -1,7 +1,6 @@
 from typing import List
 from e2b import AsyncSandbox
 from e2b.sandbox.filesystem.filesystem import WriteEntry
-from app.constants import PROJECT_PATH
 from app.core.config import settings
 
 
@@ -16,7 +15,6 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
         template="nextjs-latest",
         api_key=settings.e2b_api_key,
         auto_pause=True,
-        
         envs={
             "NEXT_TELEMETRY_DISABLED": "1",
             "GITHUB_TOKEN": github_token or "",
@@ -30,16 +28,21 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
         print("[DEBUG] Result:", result)
 
         print("[DEBUG] Setting global git user name...")
-        result = await sandbox.commands.run('git config --global user.name "actovator"', user="root")
+        result = await sandbox.commands.run(
+            'git config --global user.name "actovator"', user="root"
+        )
         print("[DEBUG] Result:", result)
 
         print("[DEBUG] Setting global git credential.helper to store...")
-        result = await sandbox.commands.run("git config --global credential.helper store")
+        result = await sandbox.commands.run(
+            "git config --global credential.helper store"
+        )
         print("[DEBUG] Result:", result)
 
         print("[DEBUG] Adding github credentials to ~/.git-credentials ...")
         result = await sandbox.commands.run(
-            'echo "https://oauth2:$GITHUB_TOKEN@github.com" > ~/.git-credentials', user="root", 
+            'echo "https://oauth2:$GITHUB_TOKEN@github.com" > ~/.git-credentials',
+            user="root",
         )
         print("[DEBUG] Result:", result)
 
@@ -49,7 +52,6 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
         )
         print("[DEBUG] Result:", result)
 
-        
     return sandbox.sandbox_id
 
 
@@ -70,6 +72,7 @@ async def get_sandbox_host_url(sandbox_id: str, port: int):
     url = f"https://{host}"
     return url
 
+
 async def read_file(sandbox_id: str, path: str):
     """
     Connect to the sandbox and read the contents of the file at the given path.
@@ -86,6 +89,7 @@ async def read_file(sandbox_id: str, path: str):
     )
     file_content = await sandbox.files.read(path)
     return file_content
+
 
 async def execute_command_in_sandbox(
     sandbox_id: str, command: str, cwd: str = None, user: str = None
@@ -107,6 +111,7 @@ async def execute_command_in_sandbox(
     )
     result = await sandbox.commands.run(command, cwd=cwd, user=user)
     return result
+
 
 async def upload_files_to_sandbox(sandbox_id: str, files: List[WriteEntry]):
     """
@@ -139,8 +144,6 @@ async def kill_sandbox(sandbox_id: str):  ## kill for beta save sandbox meaning 
         sandbox_id=sandbox_id, api_key=settings.e2b_api_key
     )
     await sandbox.kill()
-
-
 
 
 if __name__ == "__main__":

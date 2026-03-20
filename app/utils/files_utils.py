@@ -1,10 +1,8 @@
 import json
 import re
 import yaml
-from pathlib import Path
 import importlib.resources
 from typing import Any
-from functools import lru_cache
 
 
 def read_file_from_init(filename: str, package: str) -> str:
@@ -68,22 +66,6 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     return metadata, body
 
 
-def parse_frontmatter_file(filepath: str) -> tuple[dict[str, Any], str]:
-    """Read a markdown file and parse its frontmatter."""
-    with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
-    return parse_frontmatter(content)
-
-
-@lru_cache(maxsize=256)
-def parse_frontmatter_cached(content: str) -> tuple[dict[str, Any], str]:
-    """
-    Cached variant of `parse_frontmatter` for repeated parsing of the same
-    in-memory markdown strings (e.g. embedded skill docs).
-    """
-    return parse_frontmatter(content)
-
-
 def build_skills_index(skills_files: list[str]):
     """
     Build:
@@ -96,7 +78,7 @@ def build_skills_index(skills_files: list[str]):
     index = []
 
     for content in skills_files:
-        metadata, body = parse_frontmatter_cached(content)
+        metadata, body = parse_frontmatter(content)
         index.append(metadata)
         name = metadata.get("name")
         if not isinstance(name, str) or not name.strip():

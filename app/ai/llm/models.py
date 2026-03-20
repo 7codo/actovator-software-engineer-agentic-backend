@@ -1,87 +1,40 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
-from app.core.config import settings
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
-from langchain_openai import ChatOpenAI
+from langchain.chat_models import init_chat_model
+from typing import Literal, Optional
+from pydantic import BaseModel
+
+from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
+
+# Add explicit list of supported providers and model IDs for completion
+Provider = Literal["google_genai",]
+
+ModelId = Literal[
+    "gemini-3-pro-preview",
+    "gemini-3-flash-preview",  # It's hallucianite
+]
 
 
-
-gemini_3_pro = ChatGoogleGenerativeAI(
-    model="gemini-3-pro-preview",
-    temperature=0,
-    max_tokens=None,
-    timeout=None,
-    max_retries=20,
-    api_key=settings.google_api_key,
-)
+class _Model(BaseModel):
+    model_id: ModelId = DEFAULT_MODEL_ID
+    provider: Provider = DEFAULT_MODEL_PROVIDER
 
 
-gemini_3_flash_preview = ChatGoogleGenerativeAI(
-    model="gemini-3-flash-preview",
-    temperature=0,
-    max_tokens=None,
-    timeout=None,
-    max_retries=20,
-    api_key=settings.google_api_key,
-)
-
-gemini_flash_latest = ChatGoogleGenerativeAI(
-    model="gemini-flash-latest",
-    temperature=0,
-    max_tokens=None,
-    timeout=None,
-    max_retries=2,
-    api_key=settings.google_api_key,
-)
-
-gemini_2_5_pro = (
-    ChatGoogleGenerativeAI(  ## It is very bad in generation following the structure
-        model="gemini-2.5-pro",
-        temperature=0,
-        max_tokens=None,
-        timeout=None,
-        max_retries=2,
-        api_key=settings.google_api_key,
+def build_model(
+    *, model_id: ModelId = DEFAULT_MODEL_ID, provider: Provider = DEFAULT_MODEL_PROVIDER
+):
+    # Validate input using Pydantic
+    conf = _Model(model_id=model_id, provider=provider)
+    return init_chat_model(
+        model=conf.model_id, model_provider=conf.provider, temperature=0
     )
-)
 
 
-glm5 = ChatNVIDIA(
-    model="z-ai/glm5",
-    api_key=settings.nvidia_api_key,
-    temperature=1,
-    top_p=1,
-    max_tokens=16384,
-    extra_body={
-        "chat_template_kwargs": {"enable_thinking": True, "clear_thinking": False}
-    },
-)
+class State(BaseModel):
+    model_provider: Optional[str] = None
+    model_id: Optional[str] = None
 
 
-minimax_m2_5 = ChatNVIDIA(
-    model="minimaxai/minimax-m2.5",
-    api_key=settings.nvidia_api_key,
-    temperature=1,
-    top_p=0.95,
-    max_tokens=8192,
-)
-
-gpt5 = ChatOpenAI(
-    model="gpt-5",
-    base_url="https://models.github.ai/inference",
-    api_key=settings.github_token,
-    # stream_usage=True,
-    # temperature=None,
-    # max_tokens=None,
-    # timeout=None,
-    # reasoning_effort="low",
-    # max_retries=2,
-    # api_key="...",  # If you prefer to pass api key in directly
-    # base_url="...",
-    # organization="...",
-    # other params...
-)
-
-
-if __name__ == "__main__":
-    result = deepseek_v3_2.invoke("Hello, how are you?")
-    print(result)
+def build_model_from_state(state: State):
+    model_provider = state.get("model_provider", DEFAULT_MODEL_PROVIDER)
+    model_id = state.get("model_id", DEFAULT_MODEL_ID)
+    model = build_model(provider=model_provider, model_id=model_id)
+    return model

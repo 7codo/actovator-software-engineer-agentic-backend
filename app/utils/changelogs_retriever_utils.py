@@ -1,4 +1,3 @@
-
 import sys
 import re
 import json
@@ -9,6 +8,7 @@ from typing import Optional
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def parse_repo_url(url: str) -> tuple[str, str]:
     """Extract owner and repo name from a GitHub URL."""
@@ -30,6 +30,7 @@ _UNSTABLE_RE = re.compile(
     r"",
     re.IGNORECASE,
 )
+
 
 def is_stable_version(tag: str) -> bool:
     """Return True only if the tag looks like a stable release (no pre-release keywords)."""
@@ -56,11 +57,13 @@ def gh_request(url: str, token: Optional[str] = None) -> list | dict:
         return json.loads(resp.read().decode())
 
 
-def fetch_all_releases(owner: str, repo: str, token: Optional[str] = None) -> list[dict]:
+def fetch_all_releases(
+    owner: str, repo: str, token: Optional[str] = None
+) -> list[dict]:
     """Fetch every release from the GitHub Releases API (handles pagination)."""
     releases = []
     page = 1
-    print(f"  Fetching releases from GitHub API", end="", flush=True)
+    print("Fetching releases from GitHub API", end="", flush=True)
 
     while True:
         url = (
@@ -73,7 +76,9 @@ def fetch_all_releases(owner: str, repo: str, token: Optional[str] = None) -> li
             if e.code == 404:
                 raise ValueError(f"Repo '{owner}/{repo}' not found on GitHub.")
             elif e.code == 403:
-                raise ValueError("GitHub API rate-limited. Pass --token to increase the limit.")
+                raise ValueError(
+                    "GitHub API rate-limited. Pass --token to increase the limit."
+                )
             elif e.code == 422:
                 # GitHub caps pagination at 1000 results (page 10 × per_page 100)
                 # 422 means we've gone past the available range — stop gracefully
@@ -89,7 +94,9 @@ def fetch_all_releases(owner: str, repo: str, token: Optional[str] = None) -> li
 
     total_fetched = len(releases)
     if total_fetched >= 1000:
-        print(f"\n  ⚠️  GitHub API cap hit (1000 releases max). Older releases may be missing.")
+        print(
+            "\n  ⚠️  GitHub API cap hit (1000 releases max). Older releases may be missing."
+        )
     print(f" {total_fetched} releases fetched.\n")
     return releases
 
@@ -123,7 +130,9 @@ def filter_releases_between(
                 skipped.append(tag)
 
     if skipped:
-        print(f"  ⏭️  Skipped {len(skipped)} unstable release(s): {', '.join(skipped)}\n")
+        print(
+            f"  ⏭️  Skipped {len(skipped)} unstable release(s): {', '.join(skipped)}\n"
+        )
 
     # Sort oldest to newest
     result.sort(key=lambda r: version_tuple(r.get("tag_name", "")))
@@ -165,7 +174,9 @@ def fetch_release_by_ref(
             if e.code == 404:
                 continue
             elif e.code == 403:
-                raise ValueError("GitHub API rate-limited. Pass --token to increase the limit.")
+                raise ValueError(
+                    "GitHub API rate-limited. Pass --token to increase the limit."
+                )
             raise
     raise ValueError(
         f"Release '{ref}' not found in {owner}/{repo}.\n"
@@ -217,12 +228,7 @@ def format_release(
     else:
         body_output = body
 
-    formatted = (
-        f"\n{divider}\n"
-        f"  {header}\n"
-        f"{body_output}\n"
-        f"{divider}\n"
-    )
+    formatted = f"\n{divider}\n  {header}\n{body_output}\n{divider}\n"
     return formatted
 
 
@@ -237,6 +243,7 @@ def write_output(content: str, output_path: Optional[str]) -> None:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Fetch GitHub changelogs between two versions.",
@@ -250,13 +257,22 @@ def main():
         "range",
         help="Fetch changelogs between two versions (default mode)",
     )
-    range_parser.add_argument("repo_url",    help="GitHub repository URL")
-    range_parser.add_argument("old_version", help="Starting version (exclusive), e.g. 17.0.0")
-    range_parser.add_argument("new_version", help="Ending version (inclusive),  e.g. 18.0.0")
-    range_parser.add_argument("--token",  "-t", default=None, help="GitHub personal access token")
-    range_parser.add_argument("--output", "-o", default=None, help="Save output to a file")
+    range_parser.add_argument("repo_url", help="GitHub repository URL")
     range_parser.add_argument(
-        "--search", "-s",
+        "old_version", help="Starting version (exclusive), e.g. 17.0.0"
+    )
+    range_parser.add_argument(
+        "new_version", help="Ending version (inclusive),  e.g. 18.0.0"
+    )
+    range_parser.add_argument(
+        "--token", "-t", default=None, help="GitHub personal access token"
+    )
+    range_parser.add_argument(
+        "--output", "-o", default=None, help="Save output to a file"
+    )
+    range_parser.add_argument(
+        "--search",
+        "-s",
         default=None,
         metavar="KEYWORD",
         help="Only show lines matching this keyword (with release reference)",
@@ -268,11 +284,16 @@ def main():
         help="Fetch changelog for a single specific release tag",
     )
     ref_parser.add_argument("repo_url", help="GitHub repository URL")
-    ref_parser.add_argument("ref",      help="Release tag to fetch, e.g. v18.2.0 or 18.2.0")
-    ref_parser.add_argument("--token",  "-t", default=None, help="GitHub personal access token")
-    ref_parser.add_argument("--output", "-o", default=None, help="Save output to a file")
+    ref_parser.add_argument("ref", help="Release tag to fetch, e.g. v18.2.0 or 18.2.0")
     ref_parser.add_argument(
-        "--search", "-s",
+        "--token", "-t", default=None, help="GitHub personal access token"
+    )
+    ref_parser.add_argument(
+        "--output", "-o", default=None, help="Save output to a file"
+    )
+    ref_parser.add_argument(
+        "--search",
+        "-s",
         default=None,
         metavar="KEYWORD",
         help="Only show lines matching this keyword",

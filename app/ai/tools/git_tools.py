@@ -52,7 +52,9 @@ def build_git_tools(sandbox_id: str) -> dict[str, BaseTool]:
                 return parts[1] if len(parts) > 1 else None
         return None
 
-    async def _ensure_git_remote_origin(remote_url: str, repo_name: str) -> GitRemoteResult:
+    async def _ensure_git_remote_origin(
+        remote_url: str, repo_name: str
+    ) -> GitRemoteResult:
         """
         Runs the full check-and-configure sequence for a git remote origin inside
         the sandbox. Exceptions bubble up rather than being caught (the public
@@ -89,7 +91,8 @@ def build_git_tools(sandbox_id: str) -> dict[str, BaseTool]:
                     status="error-initialising-repo",
                     remote_url=None,
                     created_repo=None,
-                    error=init_res.stderr or "Unknown error initialising git repository.",
+                    error=init_res.stderr
+                    or "Unknown error initialising git repository.",
                 )
 
         # 2. Return early if an origin remote already exists.
@@ -104,9 +107,7 @@ def build_git_tools(sandbox_id: str) -> dict[str, BaseTool]:
 
         # 3. Add a caller-supplied remote URL.
         if remote_url:
-            res = await _run(
-                f"git remote add origin {remote_url}", cwd=PROJECT_PATH
-            )
+            res = await _run(f"git remote add origin {remote_url}", cwd=PROJECT_PATH)
             if res.exit_code != 0:
                 return GitRemoteResult(
                     status="error-adding-remote-url",
@@ -218,7 +219,7 @@ def build_git_tools(sandbox_id: str) -> dict[str, BaseTool]:
                 merged = [
                     b.strip().lstrip("* ")
                     for b in res.stdout.splitlines()
-                    if b.strip() and not b.strip().lstrip("* ") in ("main", "master")
+                    if b.strip() and b.strip().lstrip("* ") not in ("main", "master")
                 ]
                 result["merged"] = merged
 
@@ -233,12 +234,12 @@ def build_git_tools(sandbox_id: str) -> dict[str, BaseTool]:
             if include_not_merged:
                 res = await _run("git branch --no-merged", cwd=PROJECT_PATH)
                 if res.exit_code != 0:
-                    result["error"] = res.stderr or "Failed to list non-merged branches."
+                    result["error"] = (
+                        res.stderr or "Failed to list non-merged branches."
+                    )
                     return result
                 result["not_merged"] = [
-                    b.strip().lstrip("* ")
-                    for b in res.stdout.splitlines()
-                    if b.strip()
+                    b.strip().lstrip("* ") for b in res.stdout.splitlines() if b.strip()
                 ]
 
         except Exception as e:
@@ -270,7 +271,8 @@ def build_git_tools(sandbox_id: str) -> dict[str, BaseTool]:
             if res.exit_code != 0:
                 return {
                     "branch": "",
-                    "error": res.stderr or f"Failed to create and switch to branch '{branch_name_val}'.",
+                    "error": res.stderr
+                    or f"Failed to create and switch to branch '{branch_name_val}'.",
                 }
             return {"branch": branch_name_val, "error": ""}
         except Exception as e:
@@ -300,7 +302,8 @@ def build_git_tools(sandbox_id: str) -> dict[str, BaseTool]:
             if res.exit_code != 0:
                 return {
                     "branch": "",
-                    "error": res.stderr or f"Failed to create to branch '{branch_name_val}'.",
+                    "error": res.stderr
+                    or f"Failed to create to branch '{branch_name_val}'.",
                 }
             return {"branch": branch_name_val, "error": ""}
         except Exception as e:

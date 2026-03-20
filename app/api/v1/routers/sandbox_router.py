@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
-from fastapi import Body
 from typing import List
 import e2b.exceptions
 from app.constants import PROJECT_PATH
