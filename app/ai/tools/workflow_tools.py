@@ -3,6 +3,7 @@ from langgraph.types import Command
 from ag_ui_langgraph.agent import ToolMessage
 from langgraph.types import Command
 
+
 @tool
 def assign_prd_saving_completed(feature_path: str) -> str:
     """
@@ -40,18 +41,18 @@ def start_verification_process(
 
     Routes to verification agent while updating state.
     """
-
-    return Command(
-        update={
-            "user_task": user_task,
-            "execution_result": execution_result.strip(),
-            "messages": [
-                ToolMessage(
-                    content="Routed to verification agent",
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        },
-        goto="verification_node",
-        graph=Command.PARENT,
-    )
+    return "Routed to verification agent"
+    # return Command(
+    #     update={
+    #         "user_task": user_task,
+    #         "execution_result": execution_result.strip(),
+    #         "messages": [
+    #             ToolMessage(
+    #                 content="Routed to verification agent",
+    #                 tool_call_id=runtime.tool_call_id,
+    #             )
+    #         ],
+    #     },
+    #     goto="verification_node",
+    #     graph=Command.PARENT,
+    # )
