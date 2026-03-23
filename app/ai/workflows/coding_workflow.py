@@ -1,19 +1,25 @@
-from langchain_core.messages import HumanMessage
+from langchain.agents import create_agent
 import json
 
 from e2b import AsyncSandbox
 from langchain.tools import tool
 
+from app.ai.llm.models import build_model
 from app.constants import PROJECT_PATH
 from app.core.config import settings
 from typing import Optional, List
-from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.prompts import PromptTemplate
 from langgraph.graph import StateGraph, START, END, MessagesState
 from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
+from deepagents.backends import StateBackend
+from langchain.agents.middleware import TodoListMiddleware
+from deepagents.middleware.summarization import create_summarization_middleware
+from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.subagents import SubAgentMiddleware
 
 # ---------------------------------------------------------------------------
 # PROMPTS
@@ -555,14 +561,69 @@ WRITE_TOOLS = [
 
 
 # ---------------------------------------------------------------------------
+# INTERNAL HELPERS
+# ---------------------------------------------------------------------------
+
+
+def _base_middleware(model, backend):
+    """
+    Minimal middleware shared by every agent/subagent.
+    Intentionally excludes FilesystemMiddleware — all file I/O goes through
+    the sandbox execute_tool instead.
+    Keeps:
+      - TodoListMiddleware  → write_todos
+      - SummarizationMiddleware → automatic context-window management
+      - AnthropicPromptCachingMiddleware → token savings on Anthropic models
+      - PatchToolCallsMiddleware → auto-fix interrupted tool calls
+    """
+    return [
+        TodoListMiddleware(),
+        create_summarization_middleware(model, backend),
+        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+        PatchToolCallsMiddleware(),
+    ]
+
+
+def _compile_subagent(
+    *,
+    name: str,
+    description: str,
+    system_prompt: str,
+    tools: list,
+    model,
+    backend,
+    config: RunnableConfig,
+) -> dict:
+    """
+    Build a subagent and return it as a CompiledSubAgent dict
+    (i.e. ``{"name": ..., "description": ..., "runnable": ...}``).
+
+    Using the ``runnable`` key bypasses ``create_deep_agent``'s subagent
+    post-processing, which would otherwise inject FilesystemMiddleware.
+    See: deepagents/middleware/subagents.py — ``if "runnable" in spec`` branch.
+    """
+    compiled = create_agent(
+        model,
+        system_prompt=system_prompt,
+        tools=tools,
+        middleware=_base_middleware(model, backend),
+        config=config,
+    )
+
+    return {"name": name, "description": description, "runnable": compiled}
+
+
+# ---------------------------------------------------------------------------
 # AGENT FACTORY
 # ---------------------------------------------------------------------------
 
 
 def create_coding_agent(
+    *,
     sandbox_id: str,
-    model_id: str = "claude-sonnet-4-6",
+    model_id: Optional[str] = None,
     model_provider: Optional[str] = None,
+    config: RunnableConfig,
 ) -> object:
     """
     Build a deep coding agent for the given E2B sandbox.
@@ -581,8 +642,8 @@ def create_coding_agent(
     Returns:
         A compiled deepagent graph ready to be invoked.
     """
-    model_str = f"{model_provider}:{model_id}" if model_provider else model_id
-
+    model = build_model(model_id=model_id, provider=model_provider)
+    backend = StateBackend
     # ------------------------------------------------------------------ #
     # Shared sandbox executor                                              #
     # ------------------------------------------------------------------ #
@@ -642,59 +703,71 @@ def create_coding_agent(
     # ------------------------------------------------------------------ #
     # Subagent definitions                                                 #
     # ------------------------------------------------------------------ #
-    context_gatherer_subagent = {
-        "name": "context_gatherer",
-        "description": (
-            "Explores the codebase with read-only tools and returns a structured "
-            "context report covering files, symbols, packages, and constraints "
-            "needed to complete the user task."
+    context_gatherer = _compile_subagent(
+        name="context_gatherer",
+        description=(
+            "Explores the codebase with read-only sandbox tools and returns a "
+            "structured context report covering files, symbols, packages, and "
+            "constraints needed to complete the user task."
         ),
-        "system_prompt": context_gatherer_system_prompt,
-        "tools": [execute_tool, read_get_params],
-        "model": model_str,
-    }
+        system_prompt=context_gatherer_system_prompt,
+        tools=[execute_tool, read_get_params],
+        model=model,
+        backend=backend,
+        config=config,
+    )
 
-    executor_subagent = {
-        "name": "executor",
-        "description": (
-            "Implements the user task by creating, updating, or deleting files and "
-            "symbols based on the context report. Returns a detailed execution report "
-            "listing every file changed, package installed/removed, and symbol modified."
+    executor = _compile_subagent(
+        name="executor",
+        description=(
+            "Implements the user task by creating, updating, or deleting files "
+            "and symbols based on the context report. Returns a detailed execution "
+            "report listing every file changed, package installed/removed, and "
+            "symbol modified."
         ),
-        "system_prompt": executor_system_prompt,
-        "tools": [execute_tool, write_get_params, install_npm_package],
-        "model": model_str,
-    }
+        system_prompt=executor_system_prompt,
+        tools=[execute_tool, write_get_params, install_npm_package],
+        model=model,
+        backend=backend,
+        config=config,
+    )
 
-    verification_subagent = {
-        "name": "verification",
-        "description": (
-            "Verifies the execution by inspecting changed files, reading server logs, "
-            "and running lint checks. Returns a structured verification report with "
-            "status (passed/failed), checks, issues, and failure root-cause analysis."
+    verification = _compile_subagent(
+        name="verification",
+        description=(
+            "Verifies the execution by inspecting changed files, reading server "
+            "logs, and running lint checks. Returns a structured verification "
+            "report with status (passed/failed), checks, issues, and failure "
+            "root-cause analysis."
         ),
-        "system_prompt": verification_system_prompt,
-        "tools": [
-            execute_tool,
-            read_get_params,
-            get_server_logs,
-            get_lint_checks,
-        ],
-        "model": model_str,
-    }
+        system_prompt=verification_system_prompt,
+        tools=[execute_tool, read_get_params, get_server_logs, get_lint_checks],
+        model=model,
+        backend=backend,
+        config=config,
+    )
 
     # ------------------------------------------------------------------ #
     # Assemble the deep agent                                              #
     # ------------------------------------------------------------------ #
-    return create_deep_agent(
-        model=model_str,
+    orchestrator_middleware = [
+        TodoListMiddleware(),
+        SubAgentMiddleware(
+            backend=backend,
+            subagents=[context_gatherer, executor, verification],
+        ),
+        create_summarization_middleware(model, backend),
+        # AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+        PatchToolCallsMiddleware(),
+    ]
+
+    return create_agent(
+        model,
         system_prompt=ORCHESTRATOR_PROMPT,
-        subagents=[
-            context_gatherer_subagent,
-            executor_subagent,
-            verification_subagent,
-        ],
+        tools=[],  # orchestrator has no direct tools; all work is via subagents
+        middleware=orchestrator_middleware,
         checkpointer=MemorySaver(),
+        config=config,
     )
 
 
@@ -728,24 +801,14 @@ async def coding_agent(state: AgentState, config: RunnableConfig) -> dict:
     model_id = state.get("model_id", DEFAULT_MODEL_ID)
     model_provider = state.get("model_provider", DEFAULT_MODEL_PROVIDER)
 
-    user_task_message = next(
-        (
-            message
-            for message in reversed(messages)
-            if isinstance(message, HumanMessage)
-        ),
-        None,  # Default value if no HumanMessage is found
-    )
-    if user_task_message is None:
-        raise Exception("User task is required!")
-    user_task = user_task_message.content
     agent = create_coding_agent(
         sandbox_id=sandbox_id,
         model_id=model_id,
         model_provider=model_provider,
+        config=config,
     )
     return await agent.ainvoke(
-        {"messages": [HumanMessage(content=user_task)]},
+        {"messages": messages},
         config=config,
     )
 
