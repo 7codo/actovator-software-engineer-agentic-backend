@@ -1,355 +1,761 @@
-from ag_ui_langgraph.agent import HumanMessage
-import httpx
+from langchain_core.messages import HumanMessage
 import json
-from typing import Optional, List, Tuple
-from langgraph.graph import StateGraph, START, END, MessagesState
-from langgraph.checkpoint.memory import InMemorySaver
-from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnableConfig
-from langchain.agents import create_agent
-from app.ai.llm.models import build_model_from_state
-from app.ai.prompts.code_editor import CODE_EDITOR_PROMPT
-from app.ai.tools.sandbox_tools import build_sandbox_tools
-from app.ai.skills import CODE_EDITING_TOOLS_SKILL
-from app.ai.tools.workflow_tools import start_verification_process
-from app.utils.files_utils import build_skills_index
+
+from e2b import AsyncSandbox
 from langchain.tools import tool
-from enum import Enum
-from typing import Literal
-from pydantic import BaseModel, Field
-from app.ai.prompts.code_editor.chunks import (
-    get_phase_1_context,
-    get_phase_2_execute,
-    get_failure_protocol,
-    get_escalation_report,
-    get_verification,
-)
+
+from app.constants import PROJECT_PATH
+from app.core.config import settings
+from typing import Optional, List
+from deepagents import create_deep_agent
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.prompts import PromptTemplate
+from langgraph.graph import StateGraph, START, END, MessagesState
+from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
 
 # ---------------------------------------------------------------------------
-# Shared primitives
+# PROMPTS
+# ---------------------------------------------------------------------------
+
+ORCHESTRATOR_PROMPT = """
+## Role
+You are the Orchestrator of a multi-agent coding workflow. You coordinate three specialized subagents — context_gatherer, executor, and verification — to fulfill coding tasks end-to-end.
+
+---
+
+## Workflow
+
+### Step 1 — Gather Context
+Call `context_gatherer` with the user task.
+
+### Step 2 — Execute
+Call `executor` with:
+```
+User task: <task>
+Context report: <context_report JSON>
+```
+Parse the JSON response:
+- If `answer` is set and `status == "success"` → return answer directly to user, stop.
+- If `status == "needs_context"` → go back to Step 1, then retry Step 2.
+- If `status == "success"` → proceed to Step 3.
+
+### Step 3 — Verify
+Call `verification` with:
+```
+User task: <task>
+Execution report: <latest execution_report JSON>
+```
+Parse the JSON response:
+- If `status == "passed"` → summarise the work done and return to the user. Stop.
+- If `status == "failed"`:
+  - Check `failure_analysis.requires_context_regathering`:
+    - `true` → go back to Step 1, then re-execute, then re-verify.
+    - `false` → go back to Step 2 with the failure analysis, then re-verify.
+  - Never exceed **3 total retry loops**.
+
+---
+
+## Rules
+- Always pass the full, complete JSON reports between subagents — never truncate.
+- When the retry limit is reached without passing verification, present the last
+  verification report to the user as a failure summary with actionable next steps.
+- Never expose raw JSON to the user in your final reply — always summarise clearly.
+"""
+
+# ------------------------------------
+# CONTEXT GATHERER
+# ------------------------------------
+
+CONTEXT_GATHERER_PROMPT = """
+## Role
+You are the Context Gatherer. Collect all information needed to complete the user task using **read-only** tools only. Never modify files.
+
+---
+
+## Available API tools to use
+```
+{api_tools_catalog}
+```
+
+---
+
+## Tool Usage Guide
+
+| Tool                        | When to use                                                                  |
+|-----------------------------|------------------------------------------------------------------------------|
+| `get_tool_parameters`       | Call BEFORE every `execute_tool` call to inspect the required parameter schema |
+| `list_dir`                  | Start here — list the relevant scope, not a full recursive root              |
+| `find_file`                 | Locate a known file by name (e.g. `global.css`, `tailwind.config.ts`)        |
+| `search_for_pattern`        | Search for specific patterns; avoid bare `*` wildcards                       |
+| `get_symbols_overview`      | Get high-level symbols; increase depth for more detail                       |
+| `find_symbol`               | Locate and return the full body of a specific symbol                         |
+| `find_referencing_symbols`  | Find all call sites of a symbol before modifying it                          |
+| `read_file`                 | Last resort — only when none of the above tools are sufficient               |
+
+---
+
+## Rules
+- Always call `get_tool_parameters` before each `execute_tool`.
+- Never guess missing values — use tools to find them.
+- Narrow queries when a tool returns too many or irrelevant results.
+- Check `package.json` whenever the task involves a package not already in the project.
+
+---
+
+## Output
+You MUST return a single JSON object — no extra prose, no markdown fences.
+
+```json
+{{
+  "agent": "context_gatherer",
+  "status": "success | insufficient",
+  "context_report": {{
+    "files": [
+      {{"path": "...", "operation": "create | update | delete", "relevant_content": "..."}}
+    ],
+    "symbols": [
+      {{"name": "...", "file": "...", "call_sites": ["..."]}}
+    ],
+    "packages": [
+      {{"name": "...", "action": "install | remove"}}
+    ],
+    "constraints": ["..."]
+  }},
+  "tools_called": [
+    {{"tool": "...", "params": {{}}, "result_summary": "..."}}
+  ],
+  "tools_failed": [
+    {{"tool": "...", "params": {{}}, "error": "..."}}
+  ],
+  "insufficient_reason": null
+}}
+```
+
+Set `insufficient_reason` to a string explaining what is missing when `status == "insufficient"`.
+"""
+
+# ------------------------------------
+# EXECUTOR
+# ------------------------------------
+
+EXECUTOR_PROMPT = """
+## Role
+You are the Executor. Implement the user task efficiently and accurately using the provided context. You are empowered to make all execution decisions.
+
+---
+
+## Available API tools to use
+```
+{api_tools_catalog}
+```
+
+---
+
+## Tool Usage Guide
+
+| Tool                  | When to use                                                       |
+|-----------------------|-------------------------------------------------------------------|
+| `get_tool_parameters` | Call BEFORE every `execute_tool` call                             |
+| `execute_tool`        | Invoke a write tool (create, replace, delete, rename symbols/lines) |
+| `install_npm_package` | Install required npm packages before referencing them in code     |
+
+---
+
+## Editing Approach
+
+| Approach      | When                                                       |
+|---------------|------------------------------------------------------------|
+| Symbol-based  | Updating, creating, or deleting entire named symbols       |
+| File-based    | Symbol-based update is not possible or appropriate         |
+
+---
+
+## Inputs
+
+You will receive one of two message shapes:
+
+**Fresh execution**
+```
+User task: <task>
+Context report: <JSON>
+```
+
+**Retry after verification failure**
+```
+User task: <task>
+Verification failure report: <JSON>
+```
+
+On retry, only fix the reported failures. Do not repeat already-successful actions.
+
+---
+
+## Rules
+- Always call `get_tool_parameters` before each `execute_tool`.
+- Verify each tool result before proceeding.
+- Install required packages before writing code that uses them.
+- If context is missing or insufficient, set `status: "needs_context"` immediately.
+- If the task only requires reading/explaining (no code changes), set `answer` and stop.
+
+---
+
+## Output
+You MUST return a single JSON object — no extra prose, no markdown fences.
+
+```json
+{{
+  "agent": "executor",
+  "status": "success | failure | needs_context",
+  "answer": null,
+  "execution_report": {{
+    "summary": "Overall description of what was done",
+    "files_changed": [
+      {{"path": "...", "operation": "CREATE | UPDATE | DELETE | RENAME", "summary": "..."}}
+    ],
+    "packages": ["INSTALLED: x", "REMOVED: y"],
+    "symbols_modified": ["SymbolName in path/to/file.ts"]
+  }},
+  "tools_called": [
+    {{"tool": "...", "params": {{}}, "result_summary": "..."}}
+  ],
+  "tools_failed": [
+    {{"tool": "...", "params": {{}}, "error": "..."}}
+  ],
+  "context_insufficient_reason": null
+}}
+```
+
+Rules for fields:
+- If `answer` is non-null → no tools were called, `execution_report` may be null.
+- If `status == "needs_context"` → populate `context_insufficient_reason`.
+- If `status == "failure"` → summarise what failed in `execution_report.summary`.
+"""
+
+# ------------------------------------
+# VERIFICATION
+# ------------------------------------
+
+VERIFICATION_PROMPT = """
+## Role
+You are the Verifier. Confirm that the execution matches the user task intent by inspecting code, server logs, and lint results. **You do not modify anything.**
+
+---
+
+## Available API tools to use
+```
+{api_tools_catalog}
+```
+
+---
+
+## Tool Usage Guide
+
+| Tool                       | When to use                                                    |
+|----------------------------|----------------------------------------------------------------|
+| `get_tool_parameters`      | Call BEFORE every `execute_tool` call                          |
+| `list_dir`                 | Confirm new/modified files are in place                        |
+| `find_file`                | Check that a specific file exists                              |
+| `get_symbols_overview`     | Inspect file structure at symbol level                         |
+| `find_symbol`              | Read the full body of a changed symbol                         |
+| `find_referencing_symbols` | Verify call sites are consistent with the change               |
+| `read_file`                | Last resort — only when above tools are insufficient           |
+| `get_server_logs`          | Fetch the latest server logs to check for runtime errors       |
+| `get_lint_checks`          | Run ESLint to check for lint violations                        |
+
+---
+
+## Acceptance Checklist
+- [ ] Server logs are checked for runtime errors
+- [ ] Lint checks are checked for violations
+- [ ] All changed files are inspected to confirm correctness
+- [ ] Every claim references an observed result — no speculation
+
+---
+
+## Output
+You MUST return a single JSON object — no extra prose, no markdown fences.
+
+```json
+{{
+  "agent": "verification",
+  "status": "passed | failed",
+  "summary": "Clear statement of whether the task was completed successfully",
+  "checks": ["✓ description of passing check"],
+  "issues": ["✗ description of failing check"],
+  "tools_called": [
+    {{"tool": "...", "params": {{}}, "result_summary": "..."}}
+  ],
+  "tools_failed": [
+    {{"tool": "...", "params": {{}}, "error": "..."}}
+  ],
+  "server_log_errors": ["error line from logs"],
+  "lint_violations": ["rule: message in file:line"],
+  "failure_analysis": {{
+    "root_cause": "...",
+    "requires_context_regathering": false,
+    "suggested_fix": "..."
+  }}
+}}
+```
+
+Set `failure_analysis` to `null` when `status == "passed"`.
+Set `issues` to `[]` when `status == "passed"`.
+"""
+
+# ---------------------------------------------------------------------------
+# HELPERS  (unchanged from original — kept for compatibility)
 # ---------------------------------------------------------------------------
 
 
-class CheckResult(str, Enum):
-    PASS = "✓"
-    FAIL = "✗"
+class BuildSandboxToolsDefinitions:
+    """
+    Builds and exposes LangChain tools to fetch API tool parameter schemas by tool name.
+    """
+
+    def __init__(
+        self,
+        allowed_tools: Optional[List[str]] = None,
+        excluded_tools: Optional[List[str]] = None,
+    ) -> None:
+        from app.ai.resources import SANDBOX_TOOLS_DEFINITIONS
+
+        tools = SANDBOX_TOOLS_DEFINITIONS
+
+        if allowed_tools:
+            tools = [t for t in tools if t["name"] in allowed_tools]
+        if excluded_tools:
+            tools = [t for t in tools if t["name"] not in excluded_tools]
+
+        self.tools = tools
+
+    def get_sandbox_tools_without_params(self) -> str:
+        """Returns a JSON list of tools with only name and description (no parameters)."""
+        return json.dumps(
+            [{"name": t["name"], "description": t["description"]} for t in self.tools],
+            indent=2,
+        )
+
+    def get_sandbox_tool_parameters(self, tool_name: str) -> str:
+        for t in self.tools:
+            if t["name"] == tool_name:
+                return json.dumps(t.get("parameters", {}), indent=2)
+        return json.dumps({"error": f"Tool '{tool_name}' not found"})
+
+    def as_langchain_tools(self) -> dict:
+        instance = self
+
+        @tool
+        def get_tool_parameters(tool_name: str) -> str:
+            """
+            Retrieves the parameter schema for a specific tool by its name.
+            Use this to get the arguments definition for a tool you intend to use.
+
+            Args:
+                tool_name: The name of the tool to retrieve parameters for.
+
+            Returns:
+                A JSON string representing the tool's parameters, or an error if not found.
+            """
+            return instance.get_sandbox_tool_parameters(tool_name)
+
+        return {"get_tool_parameters": get_tool_parameters}
 
 
-class PassCheck(BaseModel):
-    """A single check row inside a PASS report."""
+class BuildSandboxTools:
+    """
+    Builds and exposes sandbox tools for interacting with an E2B AsyncSandbox.
+    """
 
-    number: int = Field(..., ge=1, description="Row index, 1-based.")
-    claim: str = Field(
-        ..., description="Claim extracted verbatim from execution_result."
-    )
-    tool_used: str = Field(
-        ..., description="Name of the tool used to verify the claim."
-    )
-    observed_value: str = Field(
-        ..., description="Exact value observed in the tool output."
-    )
-    result: Literal[CheckResult.PASS] = CheckResult.PASS
+    def __init__(self, sdbx_id: str) -> None:
+        self.sdbx_id = sdbx_id
 
+    async def _get_sandbox(self) -> AsyncSandbox:
+        return await AsyncSandbox.connect(
+            sandbox_id=self.sdbx_id, api_key=settings.e2b_api_key
+        )
 
-class FailCheck(BaseModel):
-    """A single check row inside a FAIL report (may pass or fail individually)."""
+    def _shell_error(self, context: str, exc: Exception) -> dict:
+        return {
+            "script_path": None,
+            "stdout": "",
+            "stderr": f"[{type(exc).__name__}] {context}: {exc}",
+            "exit_code": 1,
+        }
 
-    number: int = Field(..., ge=1, description="Row index, 1-based.")
-    claim: str = Field(
-        ..., description="Claim extracted verbatim from execution_result."
-    )
-    tool_used: str = Field(
-        ..., description="Name of the tool used to verify the claim."
-    )
-    observed_value: str = Field(
-        ..., description="Exact value observed in the tool output."
-    )
-    expected_value: str = Field(
-        ..., description="Expected value derived from execution_result."
-    )
-    result: CheckResult = Field(..., description="✓ if values match, ✗ otherwise.")
+    async def execute_shell_command(
+        self,
+        command: str,
+        user: str = "user",
+        cwd: str | None = None,
+        background: bool = False,
+    ):
+        try:
+            sandbox = await self._get_sandbox()
+            return await sandbox.commands.run(
+                command, user=user, cwd=cwd, background=background
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"execute_shell_command failed.\nCommand: {command}\nReason: {type(e).__name__}: {e}"
+            ) from e
 
+    async def get_host_url(self, port: int = 8000) -> dict:
+        try:
+            sandbox = await self._get_sandbox()
+            host = sandbox.get_host(port)
+            return {"url": f"https://{host}", "port": port}
+        except Exception as e:
+            return {"url": None, "port": port, "error": f"[{type(e).__name__}] {e}"}
 
-class Failure(BaseModel):
-    """Detailed breakdown for a single failing check."""
+    async def get_server_logs(self, lines_count: int = 25) -> str:
+        try:
+            result = await self.execute_shell_command(
+                f"pm2 logs project --raw --time --lines {lines_count} --nostream"
+            )
+        except Exception as e:
+            return f"[{type(e).__name__}] Failed to fetch server logs: {e}"
 
-    check_number: int = Field(..., ge=1)
-    what_was_claimed: str = Field(..., description="The claim from execution_result.")
-    what_was_observed: str = Field(
-        ..., description="Quoted value from the tool output."
-    )
-    discrepancy: str = Field(..., description="Exact difference — no speculation.")
+        skip_prefixes = ("[TAILING]", "/home/user/.pm2/logs/")
+        lines = [
+            line
+            for line in result.stdout.splitlines()
+            if not any(line.startswith(p) for p in skip_prefixes)
+        ]
+        return "\n".join(lines).strip()
 
+    async def get_lint_checks(self) -> str:
+        try:
+            result = await self.execute_shell_command("npm run lint", cwd=PROJECT_PATH)
+            return result.stdout
+        except Exception as e:
+            return f"[{type(e).__name__}] Failed to run lint checks: {e}"
 
-class UnverifiableCheck(BaseModel):
-    """A check that could not be completed."""
+    async def execute_tool(self, tool_name: str, tool_params: dict) -> dict:
+        import hashlib
 
-    check_number: int = Field(..., ge=1)
-    reason: str = Field(..., description="Why the check could not be completed.")
+        payload = json.dumps(tool_params)
+        digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
+        payload_path = f"/tmp/payload_{digest}.json"
+
+        try:
+            sandbox = await self._get_sandbox()
+            await sandbox.files.write(payload_path, payload)
+
+            host_result = await self.get_host_url(8000)
+            tools_api_base_url = host_result["url"]
+            if not tools_api_base_url:
+                return {
+                    "stdout": "",
+                    "stderr": f"Could not get tools API base URL: {host_result.get('error')}",
+                    "exit_code": 1,
+                }
+
+            base_url = tools_api_base_url.rstrip("/")
+            url = f"{base_url}/tools/{tool_name}"
+            command = (
+                f"curl -sS -X POST {url} "
+                f"-H 'Content-Type: application/json' "
+                f"-d '@{payload_path}'"
+                f'; echo "HTTP_STATUS:$?"'
+            )
+
+            result = await self.execute_shell_command(command, cwd=PROJECT_PATH)
+            return {
+                "stdout": getattr(result, "stdout", ""),
+                "stderr": getattr(result, "stderr", ""),
+                "exit_code": getattr(result, "exit_code", 1),
+            }
+        except Exception as e:
+            return self._shell_error(f"Failed to execute tool '{tool_name}'", e)
+        finally:
+            try:
+                await self.execute_shell_command(f"rm -f {payload_path}")
+            except Exception:
+                pass
+
+    async def install_npm_package(self, package: str, is_dev: bool = False) -> dict:
+        flag = "--save-dev" if is_dev else "--save"
+        command = f"npm install {flag} {package}"
+        try:
+            result = await self.execute_shell_command(command, cwd=PROJECT_PATH)
+            return {
+                "stdout": getattr(result, "stdout", ""),
+                "stderr": getattr(result, "stderr", ""),
+                "exit_code": getattr(result, "exit_code", 1),
+            }
+        except Exception as e:
+            return self._shell_error(f"Failed to install npm package '{package}'", e)
+
+    def as_langchain_tools(self) -> dict:
+        instance = self
+
+        @tool
+        async def execute_tool(tool_name: str, tool_params: dict) -> dict:
+            """
+            Invoke a registered sandbox tool by name.
+
+            Args:
+                tool_name: The registered name of the tool to invoke.
+                tool_params: A dictionary of parameters to pass as the JSON request body.
+
+            Returns:
+                dict with 'stdout', 'stderr', and 'exit_code'.
+            """
+            return await instance.execute_tool(tool_name, tool_params)
+
+        @tool
+        async def install_npm_package(package: str, is_dev: bool = False) -> dict:
+            """
+            Install an npm package inside the project.
+
+            **Note: prefer not to pin the package version unless required.**
+
+            Args:
+                package: The npm package name to install.
+                is_dev: If True, installs as a devDependency (default: False).
+
+            Returns:
+                dict with 'stdout', 'stderr', and 'exit_code'.
+            """
+            return await instance.install_npm_package(package, is_dev)
+
+        return {
+            "execute_tool": execute_tool,
+            "install_npm_package": install_npm_package,
+        }
 
 
 # ---------------------------------------------------------------------------
-# Report variants
+# TOOL SETS
+# ---------------------------------------------------------------------------
+
+READ_ONLY_TOOLS = [
+    "read_file",
+    "list_dir",
+    "find_file",
+    "search_for_pattern",
+    "get_symbols_overview",
+    "find_symbol",
+    "find_referencing_symbols",
+]
+
+WRITE_TOOLS = [
+    "create_text_file",
+    "replace_content",
+    "delete_lines",
+    "replace_lines",
+    "insert_at_line",
+    "replace_symbol_body",
+    "insert_after_symbol",
+    "insert_before_symbol",
+    "rename_symbol",
+]
+
+
+# ---------------------------------------------------------------------------
+# AGENT FACTORY
 # ---------------------------------------------------------------------------
 
 
-class PassReport(BaseModel):
-    """Verification report when every check passes."""
+def create_coding_agent(
+    sandbox_id: str,
+    model_id: str = "claude-sonnet-4-6",
+    model_provider: Optional[str] = None,
+) -> object:
+    """
+    Build a deep coding agent for the given E2B sandbox.
 
-    status: Literal["PASS"] = "PASS"
-    checks: list[PassCheck] = Field(..., min_length=1)
-    summary: str = Field(
-        ...,
-        description=(
-            "Human-readable summary, e.g. "
-            "'All 3 checks passed. The observed state matches the expected state.'"
+    The agent orchestrates three subagents:
+      - context_gatherer  — read-only exploration, returns a context report
+      - executor          — writes files/symbols, returns an execution report
+      - verification      — read-only + logs/lint, returns a verification report
+
+    Args:
+        sandbox_id:     E2B sandbox ID to connect to.
+        model_id:       LangChain model identifier (default: claude-sonnet-4-6).
+        model_provider: Optional provider prefix (e.g. "openai", "anthropic").
+                        When set the model string becomes "<provider>:<model_id>".
+
+    Returns:
+        A compiled deepagent graph ready to be invoked.
+    """
+    model_str = f"{model_provider}:{model_id}" if model_provider else model_id
+
+    # ------------------------------------------------------------------ #
+    # Shared sandbox executor                                              #
+    # ------------------------------------------------------------------ #
+    sandbox_builder = BuildSandboxTools(sandbox_id)
+    lc_tools = sandbox_builder.as_langchain_tools()
+    execute_tool = lc_tools["execute_tool"]
+    install_npm_package = lc_tools["install_npm_package"]
+
+    # ------------------------------------------------------------------ #
+    # Per-role tool-parameter helpers (scope what the LLM can discover)  #
+    # ------------------------------------------------------------------ #
+    read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
+    write_definitions = BuildSandboxToolsDefinitions(allowed_tools=WRITE_TOOLS)
+
+    read_get_params = read_definitions.as_langchain_tools()["get_tool_parameters"]
+    write_get_params = write_definitions.as_langchain_tools()["get_tool_parameters"]
+
+    # ------------------------------------------------------------------ #
+    # Verification-only tools for server logs & lint                      #
+    # ------------------------------------------------------------------ #
+    _sb = sandbox_builder  # capture for closures
+
+    @tool
+    async def get_server_logs(lines_count: int = 25) -> str:
+        """
+        Fetch the latest server logs from pm2.
+        Use this to detect runtime errors after code changes.
+
+        Args:
+            lines_count: Number of recent log lines to return (default 25).
+        """
+        return await _sb.get_server_logs(lines_count)
+
+    @tool
+    async def get_lint_checks() -> str:
+        """
+        Run ESLint on the project and return the full output.
+        Use this to detect code-quality violations after code changes.
+        """
+        return await _sb.get_lint_checks()
+
+    # ------------------------------------------------------------------ #
+    # Formatted system prompts (inject tool catalog at build time)        #
+    # ------------------------------------------------------------------ #
+    context_gatherer_system_prompt = PromptTemplate.from_template(
+        CONTEXT_GATHERER_PROMPT
+    ).format(api_tools_catalog=read_definitions.get_sandbox_tools_without_params())
+
+    executor_system_prompt = PromptTemplate.from_template(EXECUTOR_PROMPT).format(
+        api_tools_catalog=write_definitions.get_sandbox_tools_without_params()
+    )
+
+    verification_system_prompt = PromptTemplate.from_template(
+        VERIFICATION_PROMPT
+    ).format(api_tools_catalog=read_definitions.get_sandbox_tools_without_params())
+
+    # ------------------------------------------------------------------ #
+    # Subagent definitions                                                 #
+    # ------------------------------------------------------------------ #
+    context_gatherer_subagent = {
+        "name": "context_gatherer",
+        "description": (
+            "Explores the codebase with read-only tools and returns a structured "
+            "context report covering files, symbols, packages, and constraints "
+            "needed to complete the user task."
         ),
-    )
+        "system_prompt": context_gatherer_system_prompt,
+        "tools": [execute_tool, read_get_params],
+        "model": model_str,
+    }
 
-
-class FailReport(BaseModel):
-    """Verification report when one or more checks fail."""
-
-    status: Literal["FAIL"] = "FAIL"
-    checks: list[FailCheck] = Field(..., min_length=1)
-    failures: list[Failure] = Field(
-        default_factory=list,
-        description="Detailed breakdown for every check whose result is ✗.",
-    )
-    unverifiable_checks: list[UnverifiableCheck] = Field(
-        default_factory=list,
-        description="Checks that could not be completed at all.",
-    )
-    summary: str = Field(
-        ...,
-        description=(
-            "Human-readable summary, e.g. "
-            "'2 of 4 checks passed. 2 failed. Do not re-run until discrepancies are resolved.'"
+    executor_subagent = {
+        "name": "executor",
+        "description": (
+            "Implements the user task by creating, updating, or deleting files and "
+            "symbols based on the context report. Returns a detailed execution report "
+            "listing every file changed, package installed/removed, and symbol modified."
         ),
+        "system_prompt": executor_system_prompt,
+        "tools": [execute_tool, write_get_params, install_npm_package],
+        "model": model_str,
+    }
+
+    verification_subagent = {
+        "name": "verification",
+        "description": (
+            "Verifies the execution by inspecting changed files, reading server logs, "
+            "and running lint checks. Returns a structured verification report with "
+            "status (passed/failed), checks, issues, and failure root-cause analysis."
+        ),
+        "system_prompt": verification_system_prompt,
+        "tools": [
+            execute_tool,
+            read_get_params,
+            get_server_logs,
+            get_lint_checks,
+        ],
+        "model": model_str,
+    }
+
+    # ------------------------------------------------------------------ #
+    # Assemble the deep agent                                              #
+    # ------------------------------------------------------------------ #
+    return create_deep_agent(
+        model=model_str,
+        system_prompt=ORCHESTRATOR_PROMPT,
+        subagents=[
+            context_gatherer_subagent,
+            executor_subagent,
+            verification_subagent,
+        ],
+        checkpointer=MemorySaver(),
     )
 
 
-VerificationReport = PassReport | FailReport
-
-
 # ---------------------------------------------------------------------------
-# State
+# CONVENIENCE INVOCATION HELPER
 # ---------------------------------------------------------------------------
-
-
-class State(MessagesState):
+class AgentState(MessagesState):
     sandbox_id: str
     model_provider: Optional[str] = None
     model_id: Optional[str] = None
     user_task: str | None = None
-    execution_result: str | None = None
-    verification_report: VerificationReport | None = None
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def get_available_api_tools(
-    tools_api_base_url: str,
-    allowed_tools: Optional[List[str]] = None,
-    excluded_tools: Optional[List[str]] = None,
-) -> List[dict]:
+async def coding_agent(state: AgentState, config: RunnableConfig) -> dict:
     """
-    Fetches the available tools from the tools API, filtered by allowed and excluded lists.
-    """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{tools_api_base_url}/tools", timeout=10.0)
-        resp.raise_for_status()
-        tools = resp.json()
+    High-level helper: build an agent and run a single coding task.
 
-    if allowed_tools:
-        tools = [t for t in tools if t["name"] in allowed_tools]
-    if excluded_tools:
-        tools = [t for t in tools if t["name"] not in excluded_tools]
-    return tools
+    Args:
+        user_task:      Natural-language description of what to implement.
+        sandbox_id:     E2B sandbox ID to target.
+        thread_id:      LangGraph thread ID for checkpointing / resumability.
+        model_id:       Model identifier (default: claude-sonnet-4-6).
+        model_provider: Optional provider prefix.
 
-
-def build_api_tools_catalog_tool(api_tools_catalog: dict):
-    @tool
-    async def get_api_tools_catalog():
-        """
-        Returns the list of available API tools with their names and descriptions.
-        Call this tool once at the start of the task to know what tools are available
-        before calling get_phase_1_context().
-        """
-
-        api_tools_catalog_lite = [
-            {"name": t["name"], "description": t["description"]}
-            for t in api_tools_catalog
-        ]
-
-        return json.dumps(api_tools_catalog_lite, indent=2)
-
-    return get_api_tools_catalog
-
-
-def _build_get_tool_params_tool(api_tools_catalog: List[dict]):
-    """
-    Returns a LangChain tool to fetch API tool parameter schemas by tool name.
+    Returns:
+        The final agent state dict.
     """
 
-    @tool
-    def get_tool_params_by_name(tool_name: str) -> str:
-        """
-        Retrieves the parameter schema for a specific tool by its name.
-        Use this to get the arguments definition for a tool you intend to use.
-
-        Args:
-            tool_name: The name of the tool to retrieve parameters for.
-
-        Returns:
-            A JSON string representing the tool's parameters or an error if not found.
-        """
-        for tool in api_tools_catalog:  # noqa: F402
-            if tool["name"] == tool_name:
-                return json.dumps(tool.get("parameters", {}), indent=2)
-        return json.dumps({"error": "Tool not found"})
-
-    return get_tool_params_by_name
-
-
-def _require_sandbox_id(state: State) -> str:
     sandbox_id = state.get("sandbox_id")
-    if not sandbox_id:
-        raise ValueError("sandbox_id is required!")
-    return sandbox_id
+    messages = state.get("messages")
+    model_id = state.get("model_id", DEFAULT_MODEL_ID)
+    model_provider = state.get("model_provider", DEFAULT_MODEL_PROVIDER)
 
-
-# ---------------------------------------------------------------------------
-# Main Node
-# ---------------------------------------------------------------------------
-
-
-async def main_node(state: State, config: RunnableConfig) -> dict:
-    sandbox_id = _require_sandbox_id(state)
-
-    model = build_model_from_state(state)
-
-    sandbox_tools = build_sandbox_tools(sandbox_id)
-    tools_api_base_url = (await sandbox_tools["get_host_url"](8000))["url"]
-
-    api_tools_catalog = await get_available_api_tools(
-        tools_api_base_url, excluded_tools=["execute_shell_command"]
+    user_task_message = next(
+        (
+            message
+            for message in reversed(messages)
+            if isinstance(message, HumanMessage)
+        ),
+        None,  # Default value if no HumanMessage is found
     )
-    get_api_tools_catalog = build_api_tools_catalog_tool(api_tools_catalog)
-    get_params_tool = _build_get_tool_params_tool(api_tools_catalog)
-
-    agent = create_agent(
-        model=model,
-        system_prompt=CODE_EDITOR_PROMPT,
-        tools=[
-            sandbox_tools["execute_tool"],
-            get_params_tool,
-            start_verification_process,
-            get_phase_1_context,
-            get_phase_2_execute,
-            get_failure_protocol,
-            get_escalation_report,
-            get_verification,
-            get_api_tools_catalog,
-        ],
+    if user_task_message is None:
+        raise Exception("User task is required!")
+    user_task = user_task_message.content
+    agent = create_coding_agent(
+        sandbox_id=sandbox_id,
+        model_id=model_id,
+        model_provider=model_provider,
+    )
+    return await agent.ainvoke(
+        {"messages": [HumanMessage(content=user_task)]},
+        config=config,
     )
 
-    previous_report = state.get("verification_report")
-    user_task = state.get("user_task")
-    if previous_report is not None:
-        messages = [
-            HumanMessage(
-                content=(
-                    f"User Task:\n{user_task}\n\n"
-                    f"Previous Verification Report (failed attempt):\n{previous_report}\n\n"
-                    "Please fix the discrepancies and then provide a fresh execution log for verification."
-                )
-            )
-        ]
-    else:
-        messages = state.get("messages", [])
-    result = await agent.ainvoke({"messages": messages}, config=config)
-    return {
-        "messages": result["messages"],
-        "verification_report": None,
-        "user_task": None,
-    }
 
-
-# async def verification_node(state: State, config: RunnableConfig) -> dict:
-#     sandbox_id = _require_sandbox_id(state)
-
-#     model = build_model_from_state(state)
-
-#     sandbox_tools = build_sandbox_tools(sandbox_id)
-#     tools_api_base_url = (await sandbox_tools["get_host_url"](8000))["url"]
-
-#     api_tools_catalog = await get_available_api_tools(
-#         tools_api_base_url,
-#         allowed_tools=[
-#             "list_dir",
-#             "find_file",
-#             "search_for_pattern",
-#             "get_symbols_overview",
-#             "find_symbol",
-#             "find_referencing_symbols",
-#             "execute_shell_command",
-#         ],
-#     )
-#     api_tools_catalog_lite = [
-#         {"name": t["name"], "description": t["description"]} for t in api_tools_catalog
-#     ]
-#     formatted_prompt = PromptTemplate.from_template(
-#         CODE_EDITOR_VERIFICATION_PROMPT
-#     ).format(
-#         api_tools_catalog=json.dumps(api_tools_catalog_lite, indent=2),
-#     )
-#     get_params_tool = _build_get_tool_params_tool(api_tools_catalog)
-
-#     agent = create_agent(
-#         model=model,
-#         system_prompt=formatted_prompt,
-#         tools=[
-#             sandbox_tools["execute_tool"],
-#             get_params_tool,
-#         ],
-#         response_format=VerificationReport,
-#     )
-
-#     result = await agent.ainvoke(
-#         {
-#             "messages": [
-#                 HumanMessage(
-#                     f"Execution Result: {state.get('execution_result')}\nUser Task: {state.get('user_task')}"
-#                 )
-#             ]
-#         },
-#         config=config,
-#     )
-#     verification_report = result["structured_response"]
-#     return {"messages": result["messages"], "verification_report": verification_report}
-
-
-# ---------------------------------------------------------------------------
-# Workflow Setup
-# ---------------------------------------------------------------------------
-
-
-def route_after_verification_step(state: State):
-    if isinstance(state.get("verification_report"), PassReport):
-        return END
-    elif isinstance(state.get("verification_report"), FailReport):
-        return "main_node"
-
-
-coding_workflow = StateGraph(State)
-coding_workflow.add_node("main_node", main_node)
-# coding_workflow.add_node("verification_node", verification_node)
-coding_workflow.add_edge(START, "main_node")
-# coding_workflow.add_conditional_edge("verification_node", route_after_verification_step)
+coding_workflow = StateGraph(AgentState)
 
 checkpointer = InMemorySaver()
+coding_workflow.add_node("coding_agent", coding_agent)
+
+
+coding_workflow.add_edge(START, "coding_agent")
+coding_workflow.add_edge("coding_agent", END)
 coding_graph = coding_workflow.compile(checkpointer=checkpointer)

@@ -5,13 +5,16 @@ import importlib.resources
 from typing import Any
 
 
-def read_file_from_init(filename: str, package: str) -> str:
+def read_file_from_init(filename: str, package: str, is_json_file: bool = False) -> str:
     with (
         importlib.resources.files(package)
         .joinpath(filename)
         .open("r", encoding="utf-8") as f
     ):
-        return f.read()
+        if is_json_file:
+            return json.load(f)
+        else:
+            return f.read()
 
 
 def parse_list_dir_tool_result(result: Any) -> tuple[list[str], list[str]]:
