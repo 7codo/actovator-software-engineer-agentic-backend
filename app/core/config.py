@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     github_token: str = ""
     azure_api_key: str = ""
     azure_endpoint: str = ""
+    openrouter_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env.local", env_file_encoding="utf-8", case_sensitive=False

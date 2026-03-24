@@ -3,13 +3,21 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
+from langchain_openrouter import ChatOpenRouter
+from app.core.config import settings
+
+model = ChatOpenRouter(
+    model="minimax/minimax-m2.5",
+    temperature=0,
+    max_retries=7,
+    api_key=settings.openrouter_api_key,
+)
 
 # Add explicit list of supported providers and model IDs for completion
 Provider = Literal["google_genai",]
 
 ModelId = Literal[
-    "gemini-3.1-pro-preview"
-    "gemini-3-pro-preview",
+    "gemini-3.1-pro-previewgemini-3-pro-preview",
     "gemini-3-flash-preview",  # It's hallucianite
     "gemini-pro-latest",
 ]
@@ -38,5 +46,6 @@ class State(BaseModel):
 def build_model_from_state(state: State):
     model_provider = state.get("model_provider", DEFAULT_MODEL_PROVIDER)
     model_id = state.get("model_id", DEFAULT_MODEL_ID)
-    model = build_model(provider=model_provider, model_id=model_id)
+    # model = build_model(provider=model_provider, model_id=model_id)
+    # return model
     return model
