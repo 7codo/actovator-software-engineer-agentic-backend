@@ -34,13 +34,15 @@ You are the Orchestrator of a multi-agent coding workflow. You coordinate three 
 ## Workflow
 
 ### Step 1 — Gather Context
-Call `context_gatherer` with the user task.
+Call it with the user task.
+Call `context_gatherer` with the user task | skip it if the old context in the previous iteration is enough to execute the task becarfully when choose to skip context gathering because of the context staling or insuficient content to the new task
 
 ### Step 2 — Execute
 Call `executor` with:
 ```
 User task: <task>
 Context report: <context_report JSON>
+Old executions task fit reports: list of picked old execution reports
 ```
 Parse the JSON response:
 - If `answer` is set and `status == "success"` → return answer directly to user, stop.
@@ -64,6 +66,7 @@ Parse the JSON response:
 ---
 
 ## Rules
+- Track and accumulate all user task fit execution reports so the executor can avoid repeating work and get its footprint.
 - Always pass the full, complete JSON reports between subagents — never truncate.
 - When the retry limit is reached without passing verification, present the last
   verification report to the user as a failure summary with actionable next steps.
@@ -607,7 +610,7 @@ def _compile_subagent(
         system_prompt=system_prompt,
         tools=tools,
         middleware=_base_middleware(model, backend),
-        config=config,
+        
     )
 
     return {"name": name, "description": description, "runnable": compiled}
@@ -767,7 +770,7 @@ def create_coding_agent(
         tools=[],  # orchestrator has no direct tools; all work is via subagents
         middleware=orchestrator_middleware,
         checkpointer=MemorySaver(),
-        config=config,
+        
     )
 
 
@@ -807,10 +810,13 @@ async def coding_agent(state: AgentState, config: RunnableConfig) -> dict:
         model_provider=model_provider,
         config=config,
     )
-    return await agent.ainvoke(
+    result = await agent.ainvoke(
         {"messages": messages},
         config=config,
     )
+    return {
+        messages: result["messages"]
+    }
 
 
 coding_workflow = StateGraph(AgentState)
