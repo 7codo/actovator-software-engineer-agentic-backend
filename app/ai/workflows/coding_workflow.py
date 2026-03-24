@@ -118,7 +118,6 @@ You are the Context Gatherer. Explore the codebase using read-only tools only an
 - Always call `get_tool_parameters` before each `execute_tool` call.
 - Always prefer symbolic tools for code exploration when possible.
     - For example, instead of using `read_file` to retrieve an entire file for a specific symbol, first use `get_symbols_overview` to get a symbol map (adjust depth as needed), then use `find_symbol` to fetch just the symbol's body.
-    - Refer to each tool's `what_it_does`, `why_use_it`, `when_to_use`, and `considerations_tweaks` catalog to determine the most appropriate usage for your task.
 - Never guess missing values — use tools to find them.
 - Narrow queries when a tool returns too many or irrelevant results.
 - Check `package.json` when the task involves a package not already confirmed present or confirmed present and need to delete.
@@ -205,8 +204,6 @@ You are the Executor. Implement the user task by writing files and symbols and i
 
 ## Rules
 - Always prefer symbolic tools for code editing when possible.
-    - For example, instead of using `read_file` to retrieve an entire file for a specific symbol, first use `get_symbols_overview` to get a symbol map (adjust depth as needed), then use `find_symbol` to fetch just the symbol's body.
-    - Refer to each tool's `what_it_does`, `why_use_it`, `when_to_use`, and `considerations_tweaks` catalog to determine the most appropriate usage for your task.
 - Always call `get_tool_parameters` before each `execute_tool` call.
 - Never install packages after writing code that uses them — packages always come first.
 - Never repeat an action listed in `actions_already_attempted`.
@@ -329,7 +326,6 @@ You are the Verifier. Confirm the execution matches the user task intent by insp
 - Always call `get_tool_parameters` before each `execute_tool` call, except when calling `get_server_logs` or `get_lint_checks`, which do not require a preceding `get_tool_parameters` call.
 - Always prefer symbolic tools for code exploration when possible.
     - For example, instead of using `read_file` to retrieve an entire file for a specific symbol, first use `get_symbols_overview` to get a symbol map (adjust depth as needed), then use `find_symbol` to fetch just the symbol's body.
-    - Refer to each tool's `what_it_does`, `why_use_it`, `when_to_use`, and `considerations_tweaks` catalog to determine the most appropriate usage for your task.
 - Never report a check without first calling the relevant tool and observing the output yourself.
 - Every `checks` and `issues` entry must reference a concrete tool result using this format:
   `✓ [tool_name → param_summary] finding`
@@ -963,7 +959,8 @@ async def coding_agent(state: AgentState, config: RunnableConfig) -> dict:
         {"messages": messages},
         config=config,
     )
-    return {messages: result["messages"]}
+
+    return {"messages": result["messages"]}
 
 
 coding_workflow = StateGraph(AgentState)

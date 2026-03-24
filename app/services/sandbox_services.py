@@ -1,3 +1,4 @@
+
 from typing import List
 from e2b import AsyncSandbox
 from e2b.sandbox.filesystem.filesystem import WriteEntry
@@ -11,6 +12,7 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
     Returns:
         Sandbox: The created Sandbox instance.
     """
+
     sandbox = await AsyncSandbox.beta_create(
         template="nextjs-latest",
         api_key=settings.e2b_api_key,
@@ -51,6 +53,7 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
             "git config --global --add safe.directory '*'", user="root"
         )
         print("[DEBUG] Result:", result)
+    
 
     return sandbox.sandbox_id
 
@@ -146,11 +149,11 @@ async def kill_sandbox(sandbox_id: str):  ## kill for beta save sandbox meaning 
     await sandbox.kill()
 
 
+
 if __name__ == "__main__":
     import asyncio
+    import httpx
+    
 
-    # sandbox_id = asyncio.run(create_sandbox_with_auto_pause())
-    # print(f"sandbox_id: {sandbox_id}")
-
-    # Example: kill the created sandbox (uncomment to run)
-    asyncio.run(kill_sandbox(sandbox_id="igjgy8c0rxosyitmur8x0"))
+    # Run the async function
+    asyncio.run(restart_server())
