@@ -33,9 +33,10 @@ def build_model(
 ):
     # Validate input using Pydantic
     conf = _Model(model_id=model_id, provider=provider)
-    return init_chat_model(
-        model=conf.model_id, model_provider=conf.provider, temperature=0
-    )
+    return model
+    # return init_chat_model(
+    #     model=conf.model_id, model_provider=conf.provider, temperature=0
+    # )
 
 
 class State(BaseModel):
@@ -46,6 +47,5 @@ class State(BaseModel):
 def build_model_from_state(state: State):
     model_provider = state.get("model_provider", DEFAULT_MODEL_PROVIDER)
     model_id = state.get("model_id", DEFAULT_MODEL_ID)
-    # model = build_model(provider=model_provider, model_id=model_id)
-    # return model
+    model = build_model(provider=model_provider, model_id=model_id)
     return model
