@@ -484,10 +484,6 @@ class BuildSandboxToolsDefinitions:
                 {
                     "name": t["name"],
                     "description": t["description"],
-                    "what_it_does": t["what_it_does"],
-                    "why_use_it": t["why_use_it"],
-                    "when_to_use": t["when_to_use"],
-                    "considerations_tweaks": t["considerations_tweaks"],
                 }
                 for t in self.tools
             ],
@@ -782,6 +778,7 @@ class AgentState(MessagesState):
     # Set by the orchestrator, consumed by subagent nodes
     next_action: Optional[str]
     subagent_message: Optional[str]
+    orchestration_messages: List[BaseMessage] = []
 
 
 # ---------------------------------------------------------------------------
@@ -800,11 +797,14 @@ async def orchestrator_node(state: AgentState, config: RunnableConfig) -> dict:
         provider=state.get("model_provider") or DEFAULT_MODEL_PROVIDER,
     )
     structured_model = model.with_structured_output(OrchestratorDecision)
+    messages = state.get("messages", [])
+    orchestration_messages = state.get("orchestration_messages", [])
+    if isinstance(messages[-1], HumanMessage):
+        orchestration_messages.append(messages[-1])
 
-    messages = [SystemMessage(content=ORCHESTRATOR_PROMPT)] + list(
-        state["orchestration_messages"]
-    )
-    decision: OrchestratorDecision = await structured_model.ainvoke(messages)
+    messages_input = [SystemMessage(content=ORCHESTRATOR_PROMPT)] + orchestration_messages
+    
+    decision: OrchestratorDecision = await structured_model.ainvoke(messages_input)
 
     updates: dict = {
         "next_action": decision.next_action,
@@ -815,7 +815,7 @@ async def orchestrator_node(state: AgentState, config: RunnableConfig) -> dict:
     # the caller sees it in the messages list.
     if decision.next_action == "end" and decision.final_response:
         updates["messages"] = [
-            *state.get("messages"),
+            *messages,
             AIMessage(content=decision.final_response),
         ]
         updates["orchestration_messages"] = [AIMessage(content=decision.final_response)]
@@ -839,7 +839,6 @@ async def _run_subagent(
     tools: list,
     state: AgentState,
     agent_name: str,
-    messages: List[BaseMessage],
 ) -> dict:
     """
     Creates a stateless subagent, invokes it with the orchestrator-composed
@@ -854,6 +853,7 @@ async def _run_subagent(
     agent = create_agent(model, system_prompt=system_prompt, tools=tools)
 
     subagent_message = state.get("subagent_message") or ""
+    print("subagent_message", subagent_message)
     result = await agent.ainvoke({"messages": [HumanMessage(content=subagent_message)]})
 
     last_content = result["messages"][-1].content
@@ -861,7 +861,7 @@ async def _run_subagent(
     # identify which agent produced which report in the shared message history.
     return {
         "orchestration_messages": [AIMessage(content=last_content, name=agent_name)],
-        "messages": [*messages, AIMessage(content=last_content, name=agent_name)],
+        "messages": [*state.get("messages"), AIMessage(content=last_content, name=agent_name)],
     }
 
 
@@ -886,7 +886,6 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
         tools=[lc_tools["execute_tool"], read_get_params],
         state=state,
         agent_name="context_gatherer",
-        messages=state.get("messages"),
     )
 
 
@@ -910,7 +909,6 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
         ],
         state=state,
         agent_name="executor",
-        messages=state.get("messages"),
     )
 
 
@@ -935,7 +933,6 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         ],
         state=state,
         agent_name="verification",
-        messages=state.get("messages"),
     )
 
 
