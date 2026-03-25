@@ -1,25 +1,23 @@
 from langchain.agents import create_agent
 import json
+from typing import Optional, List, Literal
 
 from e2b import AsyncSandbox
 from langchain.tools import tool
+from pydantic import BaseModel, Field
 
 from app.ai.llm.models import build_model
 from app.constants import PROJECT_PATH
 from app.core.config import settings
-from typing import Optional, List
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph.message import MessagesState
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from langchain_core.prompts import PromptTemplate
-from langgraph.graph import StateGraph, START, END, MessagesState
-from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 from langchain_core.runnables import RunnableConfig
+from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
-from deepagents.backends import StateBackend
-from langchain.agents.middleware import TodoListMiddleware
-from deepagents.middleware.summarization import create_summarization_middleware
-from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
-from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.subagents import SubAgentMiddleware
+
+from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
+
 
 # ---------------------------------------------------------------------------
 # PROMPTS
@@ -91,10 +89,14 @@ A run is only considered successful when **all** of the following are true:
 ---
 
 ## Output
-Always a plain-language summary. Never raw JSON. Cover:
-- What was done (or what failed).
-- Any files changed or packages installed.
-- Next steps if the task did not complete.
+Return a structured decision with the following fields:
+
+- `next_action`: one of `"context_gatherer"`, `"executor"`, `"verification"`, or `"end"`.
+- `subagent_message`: the full message to send to the next subagent — include the user task and any relevant JSON reports exactly as received. Required unless `next_action` is `"end"`.
+- `final_response`: a plain-language summary for the user. Required when `next_action` is `"end"`. Cover:
+  - What was done (or what failed).
+  - Any files changed or packages installed.
+  - Next steps if the task did not complete.
 """
 
 # ------------------------------------
@@ -450,7 +452,7 @@ Field rules:
 """
 
 # ---------------------------------------------------------------------------
-# HELPERS  (unchanged from original — kept for compatibility)
+# HELPERS
 # ---------------------------------------------------------------------------
 
 
@@ -684,9 +686,30 @@ class BuildSandboxTools:
             """
             return await instance.manage_npm_package(package, action, is_dev)
 
+        @tool
+        async def get_server_logs(lines_count: int = 25) -> str:
+            """
+            Fetch the latest server logs from pm2.
+            Use this to detect runtime errors after code changes.
+
+            Args:
+                lines_count: Number of recent log lines to return (default 25).
+            """
+            return await instance.get_server_logs(lines_count)
+
+        @tool
+        async def get_lint_checks() -> str:
+            """
+            Run ESLint on the project and return the full output.
+            Use this to detect code-quality violations after code changes.
+            """
+            return await instance.get_lint_checks()
+
         return {
             "execute_tool": execute_tool,
             "manage_npm_package": manage_npm_package,
+            "get_server_logs": get_server_logs,
+            "get_lint_checks": get_lint_checks,
         }
 
 
@@ -718,268 +741,239 @@ WRITE_TOOLS = [
 
 
 # ---------------------------------------------------------------------------
-# INTERNAL HELPERS
+# STRUCTURED OUTPUT SCHEMA
 # ---------------------------------------------------------------------------
 
 
-def _base_middleware(model, backend):
-    """
-    Minimal middleware shared by every agent/subagent.
-    Intentionally excludes FilesystemMiddleware — all file I/O goes through
-    the sandbox execute_tool instead.
-    Keeps:
-      - TodoListMiddleware  → write_todos
-      - SummarizationMiddleware → automatic context-window management
-      - AnthropicPromptCachingMiddleware → token savings on Anthropic models
-      - PatchToolCallsMiddleware → auto-fix interrupted tool calls
-    """
-    return [
-        TodoListMiddleware(),
-        create_summarization_middleware(model, backend),
-        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-        PatchToolCallsMiddleware(),
-    ]
+class OrchestratorDecision(BaseModel):
+    next_action: Literal["context_gatherer", "executor", "verification", "end"] = Field(
+        description=(
+            "The next step in the workflow. Use 'end' only after verification passes "
+            "or to deliver a final informational answer."
+        )
+    )
+    subagent_message: Optional[str] = Field(
+        default=None,
+        description=(
+            "Full message to pass to the next subagent. Must include the user task "
+            "and any relevant JSON reports exactly as received. Required unless "
+            "next_action is 'end'."
+        ),
+    )
+    final_response: Optional[str] = Field(
+        default=None,
+        description=(
+            "Plain-language summary for the user. Required when next_action is 'end'. "
+            "Cover what was done, files changed, packages installed, and next steps "
+            "if the task did not complete."
+        ),
+    )
 
 
-def _compile_subagent(
+# ---------------------------------------------------------------------------
+# GRAPH STATE
+# ---------------------------------------------------------------------------
+
+
+class AgentState(MessagesState):
+    sandbox_id: str
+    model_id: Optional[str]
+    model_provider: Optional[str]
+    # Set by the orchestrator, consumed by subagent nodes
+    next_action: Optional[str]
+    subagent_message: Optional[str]
+
+
+# ---------------------------------------------------------------------------
+# ORCHESTRATOR NODE
+# ---------------------------------------------------------------------------
+
+
+async def orchestrator_node(state: AgentState, config: RunnableConfig) -> dict:
+    """
+    Reads the full message history (user task + any subagent reports already
+    appended), calls the model with structured output, and writes the routing
+    decision back into the state.
+    """
+    model = build_model(
+        model_id=state.get("model_id") or DEFAULT_MODEL_ID,
+        provider=state.get("model_provider") or DEFAULT_MODEL_PROVIDER,
+    )
+    structured_model = model.with_structured_output(OrchestratorDecision)
+
+    messages = [SystemMessage(content=ORCHESTRATOR_PROMPT)] + list(
+        state["orchestration_messages"]
+    )
+    decision: OrchestratorDecision = await structured_model.ainvoke(messages)
+
+    updates: dict = {
+        "next_action": decision.next_action,
+        "subagent_message": decision.subagent_message,
+    }
+
+    # When the workflow ends, surface the final response as an AI message so
+    # the caller sees it in the messages list.
+    if decision.next_action == "end" and decision.final_response:
+        updates["messages"] = [
+            *state.get("messages"),
+            AIMessage(content=decision.final_response),
+        ]
+        updates["orchestration_messages"] = [AIMessage(content=decision.final_response)]
+
+    return updates
+
+
+def route_orchestrator(state: AgentState) -> str:
+    """Edge function: routes to the chosen subagent node or END."""
+    return state.get("next_action") or "end"
+
+
+# ---------------------------------------------------------------------------
+# SHARED SUBAGENT RUNNER
+# ---------------------------------------------------------------------------
+
+
+async def _run_subagent(
     *,
-    name: str,
-    description: str,
     system_prompt: str,
     tools: list,
-    model,
-    backend,
-    config: RunnableConfig,
+    state: AgentState,
+    agent_name: str,
+    messages: List[BaseMessage],
 ) -> dict:
     """
-    Build a subagent and return it as a CompiledSubAgent dict
-    (i.e. ``{"name": ..., "description": ..., "runnable": ...}``).
-
-    Using the ``runnable`` key bypasses ``create_deep_agent``'s subagent
-    post-processing, which would otherwise inject FilesystemMiddleware.
-    See: deepagents/middleware/subagents.py — ``if "runnable" in spec`` branch.
+    Creates a stateless subagent, invokes it with the orchestrator-composed
+    message, and returns the last message appended to the state under the
+    subagent's name so the orchestrator can read the full history on its
+    next turn.
     """
-    compiled = create_agent(
-        model,
-        system_prompt=system_prompt,
-        tools=tools,
-        # middleware=_base_middleware(model, backend),
+    model = build_model(
+        model_id=state.get("model_id") or DEFAULT_MODEL_ID,
+        provider=state.get("model_provider") or DEFAULT_MODEL_PROVIDER,
     )
-    with open(f"app/output/{name}_prompt.md", "w") as f:
-        f.write(system_prompt)
-    return {"name": name, "description": description, "runnable": compiled}
+    agent = create_agent(model, system_prompt=system_prompt, tools=tools)
+
+    subagent_message = state.get("subagent_message") or ""
+    result = await agent.ainvoke({"messages": [HumanMessage(content=subagent_message)]})
+
+    last_content = result["messages"][-1].content
+    # Append as an AIMessage named after the subagent so the orchestrator can
+    # identify which agent produced which report in the shared message history.
+    return {
+        "orchestration_messages": [AIMessage(content=last_content, name=agent_name)],
+        "messages": [*messages, AIMessage(content=last_content, name=agent_name)],
+    }
 
 
 # ---------------------------------------------------------------------------
-# AGENT FACTORY
+# SUBAGENT NODES
 # ---------------------------------------------------------------------------
 
 
-def create_coding_agent(
-    *,
-    sandbox_id: str,
-    model_id: Optional[str] = None,
-    model_provider: Optional[str] = None,
-    config: RunnableConfig,
-) -> object:
-    """
-    Build a deep coding agent for the given E2B sandbox.
-
-    The agent orchestrates three subagents:
-      - context_gatherer  — read-only exploration, returns a context report
-      - executor          — writes files/symbols, returns an execution report
-      - verification      — read-only + logs/lint, returns a verification report
-
-    Args:
-        sandbox_id:     E2B sandbox ID to connect to.
-        model_id:       LangChain model identifier (default: claude-sonnet-4-6).
-        model_provider: Optional provider prefix (e.g. "openai", "anthropic").
-                        When set the model string becomes "<provider>:<model_id>".
-
-    Returns:
-        A compiled deepagent graph ready to be invoked.
-    """
-    model = build_model(model_id=model_id, provider=model_provider)
-    backend = StateBackend
-    # ------------------------------------------------------------------ #
-    # Shared sandbox executor                                              #
-    # ------------------------------------------------------------------ #
-    sandbox_builder = BuildSandboxTools(sandbox_id)
+async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> dict:
+    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
     lc_tools = sandbox_builder.as_langchain_tools()
-    execute_tool = lc_tools["execute_tool"]
-    manage_npm_package = lc_tools["manage_npm_package"]
 
-    # ------------------------------------------------------------------ #
-    # Per-role tool-parameter helpers (scope what the LLM can discover)  #
-    # ------------------------------------------------------------------ #
     read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
-    write_definitions = BuildSandboxToolsDefinitions(allowed_tools=WRITE_TOOLS)
-
     read_get_params = read_definitions.as_langchain_tools()["get_tool_parameters"]
+
+    system_prompt = PromptTemplate.from_template(CONTEXT_GATHERER_PROMPT).format(
+        api_tools_catalog=read_definitions.get_sandbox_tools_without_params()
+    )
+
+    return await _run_subagent(
+        system_prompt=system_prompt,
+        tools=[lc_tools["execute_tool"], read_get_params],
+        state=state,
+        agent_name="context_gatherer",
+        messages=state.get("messages"),
+    )
+
+
+async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
+    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
+    lc_tools = sandbox_builder.as_langchain_tools()
+
+    write_definitions = BuildSandboxToolsDefinitions(allowed_tools=WRITE_TOOLS)
     write_get_params = write_definitions.as_langchain_tools()["get_tool_parameters"]
 
-    # ------------------------------------------------------------------ #
-    # Verification-only tools for server logs & lint                      #
-    # ------------------------------------------------------------------ #
-    _sb = sandbox_builder  # capture for closures
-
-    @tool
-    async def get_server_logs(lines_count: int = 25) -> str:
-        """
-        Fetch the latest server logs from pm2.
-        Use this to detect runtime errors after code changes.
-
-        Args:
-            lines_count: Number of recent log lines to return (default 25).
-        """
-        return await _sb.get_server_logs(lines_count)
-
-    @tool
-    async def get_lint_checks() -> str:
-        """
-        Run ESLint on the project and return the full output.
-        Use this to detect code-quality violations after code changes.
-        """
-        return await _sb.get_lint_checks()
-
-    # ------------------------------------------------------------------ #
-    # Formatted system prompts (inject tool catalog at build time)        #
-    # ------------------------------------------------------------------ #
-    context_gatherer_system_prompt = PromptTemplate.from_template(
-        CONTEXT_GATHERER_PROMPT
-    ).format(api_tools_catalog=read_definitions.get_sandbox_tools_without_params())
-
-    executor_system_prompt = PromptTemplate.from_template(EXECUTOR_PROMPT).format(
+    system_prompt = PromptTemplate.from_template(EXECUTOR_PROMPT).format(
         api_tools_catalog=write_definitions.get_sandbox_tools_without_params()
     )
 
-    verification_system_prompt = PromptTemplate.from_template(
-        VERIFICATION_PROMPT
-    ).format(api_tools_catalog=read_definitions.get_sandbox_tools_without_params())
-
-    # ------------------------------------------------------------------ #
-    # Subagent definitions                                                 #
-    # ------------------------------------------------------------------ #
-    context_gatherer = _compile_subagent(
-        name="context_gatherer",
-        description=(
-            "Explores the codebase with read-only sandbox tools and returns a "
-            "structured context report covering files, symbols, packages, and "
-            "constraints needed to complete the user task."
-        ),
-        system_prompt=context_gatherer_system_prompt,
-        tools=[execute_tool, read_get_params],
-        model=model,
-        backend=backend,
-        config=config,
+    return await _run_subagent(
+        system_prompt=system_prompt,
+        tools=[
+            lc_tools["execute_tool"],
+            write_get_params,
+            lc_tools["manage_npm_package"],
+        ],
+        state=state,
+        agent_name="executor",
+        messages=state.get("messages"),
     )
 
-    executor = _compile_subagent(
-        name="executor",
-        description=(
-            "Implements the user task by creating, updating, or deleting files "
-            "and symbols based on the context report. Returns a detailed execution "
-            "report listing every file changed, package installed/removed, and "
-            "symbol modified."
-        ),
-        system_prompt=executor_system_prompt,
-        tools=[execute_tool, write_get_params, manage_npm_package],
-        model=model,
-        backend=backend,
-        config=config,
+
+async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
+    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
+    lc_tools = sandbox_builder.as_langchain_tools()
+
+    read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
+    read_get_params = read_definitions.as_langchain_tools()["get_tool_parameters"]
+
+    system_prompt = PromptTemplate.from_template(VERIFICATION_PROMPT).format(
+        api_tools_catalog=read_definitions.get_sandbox_tools_without_params()
     )
 
-    verification = _compile_subagent(
-        name="verification",
-        description=(
-            "Verifies the execution by inspecting changed files, reading server "
-            "logs, and running lint checks. Returns a structured verification "
-            "report with status (passed/failed), checks, issues, and failure "
-            "root-cause analysis."
-        ),
-        system_prompt=verification_system_prompt,
-        tools=[execute_tool, read_get_params, get_server_logs, get_lint_checks],
-        model=model,
-        backend=backend,
-        config=config,
-    )
-
-    # ------------------------------------------------------------------ #
-    # Assemble the deep agent                                              #
-    # ------------------------------------------------------------------ #
-    orchestrator_middleware = [
-        TodoListMiddleware(),
-        SubAgentMiddleware(
-            backend=backend,
-            subagents=[context_gatherer, executor, verification],
-        ),
-        # create_summarization_middleware(model, backend),
-        # AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-        PatchToolCallsMiddleware(),
-    ]
-
-    return create_agent(
-        model,
-        system_prompt=ORCHESTRATOR_PROMPT,
-        tools=[],  # orchestrator has no direct tools; all work is via subagents
-        middleware=orchestrator_middleware,
-        checkpointer=MemorySaver(),
+    return await _run_subagent(
+        system_prompt=system_prompt,
+        tools=[
+            lc_tools["execute_tool"],
+            read_get_params,
+            lc_tools["get_server_logs"],
+            lc_tools["get_lint_checks"],
+        ],
+        state=state,
+        agent_name="verification",
+        messages=state.get("messages"),
     )
 
 
 # ---------------------------------------------------------------------------
-# CONVENIENCE INVOCATION HELPER
+# GRAPH ASSEMBLY
 # ---------------------------------------------------------------------------
-class AgentState(MessagesState):
-    sandbox_id: str
-    model_provider: Optional[str] = None
-    model_id: Optional[str] = None
-    user_task: str | None = None
-
-
-async def coding_agent(state: AgentState, config: RunnableConfig) -> dict:
-    """
-    High-level helper: build an agent and run a single coding task.
-
-    Args:
-        user_task:      Natural-language description of what to implement.
-        sandbox_id:     E2B sandbox ID to target.
-        thread_id:      LangGraph thread ID for checkpointing / resumability.
-        model_id:       Model identifier (default: claude-sonnet-4-6).
-        model_provider: Optional provider prefix.
-
-    Returns:
-        The final agent state dict.
-    """
-
-    sandbox_id = state.get("sandbox_id")
-    messages = state.get("messages")
-    model_id = state.get("model_id", DEFAULT_MODEL_ID)
-    model_provider = state.get("model_provider", DEFAULT_MODEL_PROVIDER)
-
-    agent = create_coding_agent(
-        sandbox_id=sandbox_id,
-        model_id=model_id,
-        model_provider=model_provider,
-        config=config,
-    )
-    result = await agent.ainvoke(
-        {"messages": messages},
-        config=config,
-    )
-
-    return {"messages": result["messages"]}
-
 
 coding_workflow = StateGraph(AgentState)
 
-checkpointer = InMemorySaver()
-coding_workflow.add_node("coding_agent", coding_agent)
+coding_workflow.add_node("orchestrator", orchestrator_node)
+coding_workflow.add_node("context_gatherer", context_gatherer_node)
+coding_workflow.add_node("executor", executor_node)
+coding_workflow.add_node("verification", verification_node)
+
+coding_workflow.add_edge(START, "orchestrator")
+
+coding_workflow.add_conditional_edges(
+    "orchestrator",
+    route_orchestrator,
+    {
+        "context_gatherer": "context_gatherer",
+        "executor": "executor",
+        "verification": "verification",
+        "end": END,
+    },
+)
+
+# Every subagent returns control to the orchestrator after completing.
+coding_workflow.add_edge("context_gatherer", "orchestrator")
+coding_workflow.add_edge("executor", "orchestrator")
+coding_workflow.add_edge("verification", "orchestrator")
+
+coding_graph = coding_workflow.compile(checkpointer=InMemorySaver())
 
 
-coding_workflow.add_edge(START, "coding_agent")
-coding_workflow.add_edge("coding_agent", END)
-coding_graph = coding_workflow.compile(checkpointer=checkpointer)
+# ---------------------------------------------------------------------------
+# ENTRY POINT (unchanged utility)
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     write_definitions = BuildSandboxToolsDefinitions(allowed_tools=WRITE_TOOLS)
