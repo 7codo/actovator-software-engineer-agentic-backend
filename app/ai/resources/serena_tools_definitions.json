@@ -3,15 +3,7 @@
         "name": "read_file",
         "title": "Read File",
         "description": "Reads the given file or a chunk of it. Generally, symbolic operations like find_symbol or find_referencing_symbols should be preferred if you know which symbols you are looking for. Returns the full text of the file at the given relative path.",
-        "what_it_does": "Returns the full text of a file, or a specific line range, with line numbers shown in output.",
         "why_use_it": "Required before any line-level edit (replace_lines, delete_lines, insert_at_line) to confirm the exact content at the target lines.",
-        "when_to_use": "When you need raw file content — especially config files, non-code files, or when symbolic tools have already pointed you to a specific line range.",
-        "considerations_tweaks": [
-            "Always read the exact line range you intend to edit — never edit lines you haven't read in the same session.",
-            "Use start_line and end_line (0-based) to read only the relevant section of large files.",
-            "After any edit to a file, previously read content is stale — re-read before further line-level edits.",
-            "Set max_answer_chars only as a last resort; prefer reading in smaller chunks instead."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -56,14 +48,7 @@
         "name": "create_text_file",
         "title": "Create Text File",
         "description": "Write a new file or overwrite an existing file. If the enable_human_verification set to true (default is false), the content will be sent to the user for verification. The user can then accept, edit, or reject it. Only set this to true if EXPLICITLY requested by the user. Returns a message indicating success or failure.",
-        "what_it_does": "Creates a new file at the given path, or fully overwrites an existing one, with the content you provide.",
         "why_use_it": "The only tool that can write a file from scratch. Also the right choice when the changes to an existing file are so large that editing is harder than rewriting.",
-        "when_to_use": "Creating new source files, config files, or test files. Also useful when refactoring requires a complete file rewrite.",
-        "considerations_tweaks": [
-            "This is a full overwrite — any existing content at that path is permanently replaced. Use with care on existing files.",
-            "Set enable_human_verification=true only when the user explicitly asks to review before saving — adds a confirmation step.",
-            "For large files, build the content string incrementally in memory before this single call — do not call it multiple times to append."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -95,14 +80,7 @@
         "name": "list_dir",
         "title": "List Dir",
         "description": "Lists files and directories in the given directory (optionally with recursion). The following paths are always ignored: node_modules/, .venv/, .git, .next, .actovator, and any files matching .env*. Returns a JSON object with the names of directories and files within the given directory.",
-        "what_it_does": "Lists all files and directories inside a given path, optionally recursing into subdirectories.",
         "why_use_it": "Gives you the project's folder structure so you can navigate with intention rather than guessing file locations.",
-        "when_to_use": "When starting work on an unfamiliar project or entering a new subdirectory for the first time.",
-        "considerations_tweaks": [
-            "Use recursive=false first for a shallow overview; only recurse once you know which subtree is relevant.",
-            "skip_ignored_files=true hides generated/vendored files (node_modules, .venv) — almost always what you want.",
-            "Automatically ignores node_modules/, .venv/, .git, .next — no need to filter manually."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -140,14 +118,7 @@
         "name": "find_file",
         "title": "Find File",
         "description": "Finds non-gitignored files matching the given file mask within the given relative path. Returns a JSON object with the list of matching files.",
-        "what_it_does": "Searches for files matching a name or wildcard pattern anywhere within a given path.",
         "why_use_it": "Faster than listing directories when you know the filename or extension but not its location.",
-        "when_to_use": "When you know what a file is called but not where it lives — e.g. 'where is config.yaml?' or 'find all *.test.ts files'.",
-        "considerations_tweaks": [
-            "Use * for partial names: auth* matches auth.ts, auth.service.ts, auth_utils.py.",
-            "Use ? for single-character wildcards: v?.config.js matches v1.config.js but not v12.config.js.",
-            "Pass relative_path='.' to search the whole project, or narrow to a subdirectory to reduce noise."
-        ],
         "parameters": {
             "properties": {
                 "file_mask": {
@@ -173,16 +144,7 @@
         "name": "replace_content",
         "title": "Replace Content",
         "description": "Replaces one or more occurrences of a given pattern in a file with new content. This is the preferred way to replace content in a file whenever the symbol-level tools are not appropriate. The regex mode allows very large sections of code to be replaced without fully quoting them. Returns a message indicating success or failure.",
-        "what_it_does": "Replaces text in a file by matching either a literal string or a regex pattern, substituting with new content.",
         "why_use_it": "The most versatile editing tool short of symbolic operations. Regex mode can replace large sections without quoting every line, using .*? wildcards.",
-        "when_to_use": "Targeted edits where you know what text to replace but don't need to rewrite an entire symbol — config values, inline fixes, multi-line blocks.",
-        "considerations_tweaks": [
-            "Prefer mode='regex' with wildcards like 'beginning.*?end-marker' — avoids quoting large blocks verbatim.",
-            "Use allow_multiple_occurrences=true only when you intentionally want to replace all matches (e.g. renaming a string literal everywhere).",
-            "Leave allow_multiple_occurrences=false (default) as a safety check — if the regex matches multiple spots unexpectedly, you'll get an error before any damage.",
-            "In mode='regex', use $!1, $!2 to reference captured groups in the replacement string.",
-            "DOTALL and MULTILINE are always enabled — no need to add flags manually."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -230,14 +192,7 @@
         "name": "delete_lines",
         "title": "Delete Lines",
         "description": "Deletes the given lines in the file. Requires that the same range of lines was previously read using the read_file tool to verify correctness of the operation.",
-        "what_it_does": "Permanently removes a range of lines from a file by 0-based index.",
         "why_use_it": "Clean removal of dead code, unused imports, or deprecated blocks without leaving empty space.",
-        "when_to_use": "When you need to remove a contiguous block of lines — after reading them first to confirm what's there.",
-        "considerations_tweaks": [
-            "Read the target lines with read_file first — delete second. This is enforced as a correctness requirement.",
-            "All line numbers below the deleted range shift up immediately — re-read before any further line edits.",
-            "For removing a named function or class, prefer replace_symbol_body (delete by replacing with empty) — safer than counting lines."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -269,14 +224,7 @@
         "name": "replace_lines",
         "title": "Replace Lines",
         "description": "Replaces the given range of lines in the given file. Requires that the same range of lines was previously read using the read_file tool to verify correctness of the operation.",
-        "what_it_does": "Replaces a specific range of lines (by 0-based index) with new content you provide.",
         "why_use_it": "Direct and unambiguous when you know exactly which lines to swap — useful for small, self-contained blocks.",
-        "when_to_use": "After reading the target lines with read_file, when a line range is the clearest way to describe what needs changing.",
-        "considerations_tweaks": [
-            "Requires a prior read_file call for the same range — the tool enforces this as a correctness check.",
-            "After replacing, re-read the file before further edits — line numbers shift if the replacement has a different line count.",
-            "For changes spanning more than ~20 lines, prefer replace_content with regex to avoid quoting the whole block."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -314,14 +262,7 @@
         "name": "insert_at_line",
         "title": "Insert At Line",
         "description": "Inserts the given content at the given line in the file, pushing existing content of the line down. In general, symbolic insert operations like insert_after_symbol or insert_before_symbol should be preferred if you know which symbol you are looking for.",
-        "what_it_does": "Inserts content at a specific 0-based line number, pushing existing content downward.",
         "why_use_it": "Useful for small, targeted insertions inside a function body when you can't use symbolic insert tools.",
-        "when_to_use": "When you need to add a line inside an existing symbol body and symbolic tools (insert_after_symbol) aren't granular enough.",
-        "considerations_tweaks": [
-            "Always prefer insert_after_symbol or insert_before_symbol when inserting at the top/bottom of a symbol — line numbers go stale, symbol names don't.",
-            "Read the surrounding lines first to confirm your target line number is correct.",
-            "After inserting, all line numbers below the insertion point shift down — re-read before any further edits."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -353,18 +294,7 @@
         "name": "search_for_pattern",
         "title": "Search For Pattern",
         "description": "Offers a flexible search for arbitrary patterns in the codebase, including the possibility to search in non-code files. Symbolic operations like find_symbol or find_referencing_symbols should be preferred if you know which symbols you are looking for. Returns a mapping of file paths to lists of matched consecutive lines.",
-        "what_it_does": "Regex-searches across all files (or a filtered subset), returning matching lines plus optional context lines above and below.",
         "why_use_it": "Finds content when you don't know the exact symbol name — config values, string literals, comments, TODOs, or cross-cutting patterns spanning non-code files.",
-        "when_to_use": "When symbolic tools can't help: searching non-code files (YAML, HTML, Markdown), finding string literals, or locating patterns spread across many files.",
-        "considerations_tweaks": [
-            "Use context_lines_before and context_lines_after (e.g. 3) to see surrounding code without opening the file.",
-            "Use paths_include_glob like '**/*.test.ts' to restrict to specific file types.",
-            "Use paths_exclude_glob like '**/migrations/**' to skip noisy directories.",
-            "Set restrict_search_to_code_files=true when looking for code symbols only — faster and less noisy.",
-            "Use non-greedy .*? in the middle of patterns to avoid matching too many lines.",
-            "The dot matches newlines (DOTALL mode) — useful for multi-line patterns like 'def foo.*?return'.",
-            "Never place .* at the beginning or end of a pattern — it will match the entire file."
-        ],
         "parameters": {
             "properties": {
                 "substring_pattern": {
@@ -426,14 +356,7 @@
         "name": "restart_language_server",
         "title": "Restart Language Server",
         "description": "Use this tool only on explicit user request or after confirmation. It may be necessary to restart the language server if it hangs.",
-        "what_it_does": "Kills and restarts the language server process for the current project.",
         "why_use_it": "Recovers a hung or unresponsive language server so symbolic tools work again — without losing any file changes.",
-        "when_to_use": "Only when symbolic tools start returning errors, timeouts, or clearly wrong results, and the user confirms a restart is acceptable.",
-        "considerations_tweaks": [
-            "Do not call proactively — only in response to observed failure or explicit user request.",
-            "After restarting, allow a few seconds before retrying symbolic operations — the server needs to re-index the project.",
-            "Restart does not save unsaved changes. Confirm all writes are persisted first."
-        ],
         "parameters": {
             "properties": {},
             "title": "RestartLanguageServerToolApplyArgs",
@@ -444,16 +367,7 @@
         "name": "active_language_server",
         "title": "Active Language Server",
         "description": "Activates the language server for the project's programming languages. The first language is the default and will be used as a fallback. Special requirements: csharp requires a .sln file; pascal requires Free Pascal Compiler.",
-        "what_it_does": "Starts a language server for one or more programming languages, enabling all symbolic tools for the session.",
         "why_use_it": "Without it, every symbolic tool (find_symbol, rename_symbol, etc.) is unavailable. All other tools still work, but you lose semantic understanding of the code.",
-        "when_to_use": "At the very start of any session that involves reading or editing code. Call it once — it persists for the session.",
-        "considerations_tweaks": [
-            "Pass multiple languages at once: e.g. ['typescript', 'python'] for a full-stack project.",
-            "The first language in the list is the fallback — put the most common language first.",
-            "For C, pass 'cpp'. For JavaScript, pass 'typescript'. For a JS/TS mixed project, just pass 'typescript'.",
-            "C# requires a .sln file at the project root — verify with find_file first.",
-            "pascal requires Free Pascal Compiler (fpc) to be installed."
-        ],
         "parameters": {
             "properties": {
                 "languages": {
@@ -474,15 +388,7 @@
         "name": "get_symbols_overview",
         "title": "Get Symbols Overview",
         "description": "Use this tool to get a high-level understanding of the code symbols in a file. This should be the first tool to call when you want to understand a new file, unless you already know what you are looking for. Returns a JSON object containing symbols grouped by kind in a compact format.",
-        "what_it_does": "Returns every class, function, method, and variable in a file in a compact tree — no code bodies, just names and kinds.",
         "why_use_it": "Gives you a mental map of an unknown file in one call. Avoids reading thousands of lines just to understand structure.",
-        "when_to_use": "Always call this first when opening an unfamiliar file before doing anything else.",
-        "considerations_tweaks": [
-            "Use depth=1 to also see methods inside classes without needing a separate find_symbol call.",
-            "Use depth=2 for deeply nested structures (e.g. inner classes with their own methods).",
-            "Start with depth=0 for large files to keep the response lean, then drill deeper only into the relevant class.",
-            "max_answer_chars can be raised for very large files, but prefer narrowing depth first."
-        ],
         "parameters": {
             "properties": {
                 "relative_path": {
@@ -514,18 +420,7 @@
         "name": "find_symbol",
         "title": "Find Symbol",
         "description": "Retrieves information on all symbols/code entities (classes, methods, etc.) based on the given name path pattern. A name path is a path in the symbol tree within a source file. Returns a list of symbols (with locations) matching the name.",
-        "what_it_does": "Finds a specific symbol by name path, returning its exact location, signature, and optionally its full source body.",
         "why_use_it": "Pinpoints exactly what you need without reading unrelated code. Works across the whole codebase if needed.",
-        "when_to_use": "Once you know the symbol name (from an overview or the task description), use this to retrieve it before any edit.",
-        "considerations_tweaks": [
-            "Use depth=1 to fetch a class and all its methods in one call.",
-            "Use include_body=true only when you need the full source for editing — expensive on large symbols.",
-            "Use include_info=true for docstrings/signatures without the full body.",
-            "Prefix with / (e.g. /ClassName/method) for an exact absolute match; omit prefix for suffix search.",
-            "Use substring_matching=true when you only know part of the name (e.g. 'get' matches 'getValue').",
-            "Pass relative_path to a specific file to speed up search and reduce noise.",
-            "For overloaded methods (Java), append the index e.g. MyClass/save[1] to target the right overload."
-        ],
         "parameters": {
             "properties": {
                 "name_path_pattern": {
@@ -599,15 +494,7 @@
         "name": "find_referencing_symbols",
         "title": "Find Referencing Symbols",
         "description": "Finds references to the symbol at the given name_path. The result will contain metadata about the referencing symbols as well as a short code snippet around the reference. Returns a list of JSON objects with the symbols referencing the requested symbol.",
-        "what_it_does": "Finds every symbol in the codebase that references a given symbol — all callers, importers, and users of it.",
         "why_use_it": "Prevents breaking changes. Before renaming or modifying a symbol, you know exactly how many places depend on it and where.",
-        "when_to_use": "Before any modification or rename — especially for public APIs, shared utilities, or widely used classes.",
-        "considerations_tweaks": [
-            "Use include_kinds to filter to only method callers (kind 12) or class usages (kind 5), reducing noise.",
-            "If you only need call counts (not content), skip include_info to keep the response lean.",
-            "Always pair this with rename_symbol instead of manual find-and-replace.",
-            "relative_path must be a file path, not a directory — it uniquely identifies the symbol's source."
-        ],
         "parameters": {
             "properties": {
                 "name_path": {
@@ -663,14 +550,7 @@
         "name": "replace_symbol_body",
         "title": "Replace Symbol Body",
         "description": "Replaces the body of the symbol with the given name_path. The tool shall be used to replace symbol bodies that have been previously retrieved (e.g. via find_symbol). Do not use this tool if you do not know what exactly constitutes the body of the symbol.",
-        "what_it_does": "Replaces the complete definition of a symbol (signature + body) with new content you provide.",
         "why_use_it": "Safer and more semantic than line-level edits. Operates on a named symbol rather than fragile line numbers.",
-        "when_to_use": "When rewriting an entire function, method, or class — and you already have the full new body ready.",
-        "considerations_tweaks": [
-            "Must have retrieved the symbol first via find_symbol — do not use blindly.",
-            "The body includes the signature line. Do not include leading docstrings or imports — those live outside the symbol.",
-            "For partial edits (changing one line inside a function), use replace_content instead to avoid rewriting the whole body."
-        ],
         "parameters": {
             "properties": {
                 "name_path": {
@@ -702,14 +582,7 @@
         "name": "insert_after_symbol",
         "title": "Insert After Symbol",
         "description": "Inserts the given body/content after the end of the definition of the given symbol (via the symbol's location). A typical use case is to insert a new class, function, method, field or variable assignment.",
-        "what_it_does": "Inserts new code immediately after the end of a named symbol's definition.",
         "why_use_it": "Avoids hardcoding line numbers. Anchors the insertion to a semantic position that survives other edits.",
-        "when_to_use": "Adding a new function after an existing one, appending a method to a class, or inserting a constant after another.",
-        "considerations_tweaks": [
-            "Prefer this over insert_at_line — line numbers go stale after any edit; symbol names don't.",
-            "Great for adding sibling methods to a class: target the last existing method as the anchor.",
-            "The inserted content begins on the next line after the symbol — no need to add a leading newline manually."
-        ],
         "parameters": {
             "properties": {
                 "name_path": {
@@ -741,14 +614,7 @@
         "name": "insert_before_symbol",
         "title": "Insert Before Symbol",
         "description": "Inserts the given content before the beginning of the definition of the given symbol (via the symbol's location). A typical use case is to insert a new class, function, method, field or variable assignment; or a new import statement before the first symbol in the file.",
-        "what_it_does": "Inserts new code immediately before the start of a named symbol's definition.",
         "why_use_it": "Same anchor stability as insert_after_symbol, but places code before. Useful for imports and leading declarations.",
-        "when_to_use": "Adding import statements before the first symbol, inserting a helper function above its first caller, or prepending a new class.",
-        "considerations_tweaks": [
-            "The canonical way to add a new import — target the first symbol in the file as the anchor.",
-            "When inserting multiple items, go bottom-up (insert before the last target first) to keep line numbers stable.",
-            "Prefer this over insert_at_line for the same reason — symbol anchors are stable, line numbers are not."
-        ],
         "parameters": {
             "properties": {
                 "name_path": {
@@ -780,15 +646,7 @@
         "name": "rename_symbol",
         "title": "Rename Symbol",
         "description": "Renames the symbol with the given name_path to new_name throughout the entire codebase. For languages with method overloading like Java, name_path may have to include a method's signature to uniquely identify a method. Returns result summary indicating success or failure.",
-        "what_it_does": "Renames a symbol everywhere in the codebase — definition, all call sites, imports, type hints, and tests.",
         "why_use_it": "The only safe way to rename. Manual find-and-replace misses cross-file references and can break string literals unintentionally.",
-        "when_to_use": "Whenever a symbol needs a name change — methods, classes, variables, parameters.",
-        "considerations_tweaks": [
-            "Run find_referencing_symbols first so you know the blast radius before confirming.",
-            "For overloaded methods (Java), append the signature index e.g. MyClass/save[1] to target the right overload.",
-            "This is irreversible without version control — use it with confidence after reviewing references.",
-            "relative_path must point to the file where the symbol is defined, not where it's used."
-        ],
         "parameters": {
             "properties": {
                 "name_path": {
@@ -820,16 +678,7 @@
         "name": "execute_shell_command",
         "title": "Execute Shell Command",
         "description": "Execute a shell command and return its output. If there is a memory about suggested commands, read that first. Never execute unsafe shell commands. Do not use this tool to start long-running processes or processes that require user interaction. Returns a JSON object containing the command's stdout and optionally stderr output.",
-        "what_it_does": "Runs a shell command and returns its stdout (and optionally stderr). Executes in the project root by default.",
         "why_use_it": "Lets you verify changes are correct by running tests, linters, build tools, or type checkers immediately after edits.",
-        "when_to_use": "Running test suites, formatters, compilers, or any short-lived CLI tool after making changes — or to inspect runtime output.",
-        "considerations_tweaks": [
-            "Use cwd to run in a specific subdirectory (e.g. a nested package with its own package.json).",
-            "Set capture_stderr=false only when stderr output is noisy and irrelevant (e.g. some tools write progress to stderr).",
-            "Never start long-running servers or interactive processes — the tool will hang indefinitely.",
-            "Chain quick checks: run tsc --noEmit after edits, then eslint, then tests — each as a separate call.",
-            "Never run destructive commands (rm -rf, DROP TABLE, git reset --hard) without explicit user instruction."
-        ],
         "parameters": {
             "properties": {
                 "command": {
