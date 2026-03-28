@@ -1,21 +1,21 @@
 from langchain.agents import create_agent
 import json
-from typing import Optional, List, Literal
+from typing import Optional, List
 
 from e2b import AsyncSandbox
 from langchain.tools import tool
 from pydantic import BaseModel, Field
-
+from langgraph.types import Command
 from app.ai.llm.models import build_model
 from app.constants import PROJECT_PATH
 from app.core.config import settings
 from langgraph.graph.message import MessagesState
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
-
+from enum import Enum
 from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 
 
@@ -23,81 +23,6 @@ from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 # PROMPTS
 # ---------------------------------------------------------------------------
 
-ORCHESTRATOR_PROMPT = """\
-## Role
-You are the Orchestrator. Coordinate three subagents — `context_gatherer`, `executor`, and `verification` — to complete coding tasks end-to-end.
-
----
-
-## Inputs
-- User task (natural language)
-- Subagent JSON responses
-
----
-
-## Rules
-- Never expose raw JSON to the user. Always reply in plain language.
-- Pass full, untruncated JSON reports between subagents. Never mutate them.
-- Skip a step only when explicitly permitted below.
-- If a subagent returns malformed JSON, retry once with an instruction to return valid JSON only.
-
----
-
-## Workflow
-
-### Step 1 — Gather Context
-1. Call `context_gatherer` with the user task.
-2. If the task is purely informational (no code changes or package installs required):
-   - Answer the user directly if the context is sufficient.
-   - Otherwise, regather context and answer once sufficient context is available. Stop.
-
-### Step 2 — Execute
-> **Skip** if the task is purely informational.
-
-1. Call `executor` with the user task + context report.
-2. Route on response (first match wins):
-
-| Condition | Action |
-|---|---|
-| `status: "needs_context"` | Return to Step 1 with the executor report includes the insufficient reason and the previous `context_report` appended |
-| `status: "failure"` | Stop and inform the user to contact support. |
-| `status: "success"` | Go to step 3 with the executor report |
-
-### Step 3 — Verify
-1. Call `verification` with the user task + execution report.
-2. Route on response:
-
-| Condition | Action |
-|---|---|
-| `status: "passed"` | Summarise work done. Stop. |
-| `status: "failed"` + `requires_context_regathering: true` | Return to Step 1 with the verification report includes the insufficient reason and the previous `context_report` appended |
-| `status: "failed"` + `requires_context_regathering: false` | Return to Step 2 with the verification report includes the failure analysis and the original `context_report` appended. |
-
----
-
-## Acceptance Criteria
-A run is only considered successful when **all** of the following are true:
-
-- [ ] No raw JSON was exposed to the user at any point.
-- [ ] All JSON reports passed between subagents are full and untruncated, exactly as received.
-- [ ] No step was skipped unless explicitly permitted by the workflow.
-- [ ] Any malformed JSON was retried exactly once before escalating.
-- [ ] Every routing decision matched the first applicable condition in the routing table.
-- [ ] Context was regathered whenever a step returned insufficient reason.
-- [ ] `verification` reached `status: "passed"` before the task was considered complete.
-
----
-
-## Output
-Return a structured decision with the following fields:
-
-- `next_action`: one of `"context_gatherer"`, `"executor"`, `"verification"`, or `"end"`.
-- `subagent_message`: the full message to send to the next subagent — include the user task and any relevant JSON reports exactly as received. Required unless `next_action` is `"end"`.
-- `final_response`: a plain-language summary for the user. Required when `next_action` is `"end"`. Cover:
-  - What was done (or what failed).
-  - Any files changed or packages installed.
-  - Next steps if the task did not complete.
-"""
 
 # ------------------------------------
 # CONTEXT GATHERER
@@ -105,7 +30,7 @@ Return a structured decision with the following fields:
 
 CONTEXT_GATHERER_PROMPT = """\
 ## Role
-You are the **Context Gatherer**. Explore the codebase using read-only tools and return a structured context report that will be passed to the Executor agent.
+You are the **Context Gatherer**, the first agent before the Executor and Verifier agents. Explore the codebase and return a structured context report that will be passed to the Executor agent.
 
 ---
 
@@ -127,9 +52,17 @@ For every file entry:
 ---
 
 ## Inputs
-- **User task** — natural language description of what needs to be done.
-- **`insufficient_reason`** *(optional)* — raised by the Executor when the previous context report was incomplete.
-- **`previous_context_report`** (optional) — the full context report from the previous run; present whenever `insufficient_reason` is set.
+Processing depends on the input path:
+
+### Normal Path:
+- **User task** — a natural language description of the requested change or feature.
+- **Execution History** — previous changes made by the executor agent.
+
+### Insufficient Context Path:
+If the Executor agent could not proceed due to lack of information, you will receive a verification report from the Verifier agent containing these additional inputs:
+- **`insufficient_reason`** — the cause cited by the Executor for why the previous context report was incomplete.
+- **`previous_context_report`** — the full context report generated in the previous run.
+
 - **Tool catalog**
 ```json
 {api_tools_catalog}
@@ -141,9 +74,10 @@ For every file entry:
 
 ### Fresh Run
 1. Read the task. Identify only the files, symbols, and packages directly touched.
-2. For each tool call: invoke `get_tool_parameters` first, then `execute_tool`.
-3. Stop as soon as you have sufficient context — do not over-collect.
-4. Build and return the context report.
+2. Read the execution history to be aware of previous changes.
+3. For each tool call: invoke `get_tool_parameters` first, then `execute_tool`.
+4. Stop as soon as you have sufficient context — do not over-collect.
+5. Build and return the context report.
 
 ### Retry Run
 1. Read `insufficient_reason` carefully. Treat `previous_context_report` as the base report to build on.
@@ -153,18 +87,26 @@ For every file entry:
 ---
 
 ## Acceptance Criteria
-A run is only considered successful when **all** of the following are true:
 
-- [ ] Every `execute_tool` call was preceded by a `get_tool_parameters` call for the same tool.
-- [ ] No values were guessed — all symbol names, paths, and parameters were discovered via tools.
-- [ ] `search_for_pattern` or `read_file` was only used when symbolic tools were insufficient.
-- [ ] `find_referencing_symbols` was called for every symbol that will be modified or removed.
-- [ ] `package.json` was checked if the task involves adding or removing a dependency.
-- [ ] No file entry exceeds 30 lines — truncation applied with `// ... truncated ...` where needed.
-- [ ] All source content is exact — no paraphrasing or summarization of code.
-- [ ] **Fresh run:** scope was identified before any tool calls; collection stopped as soon as sufficient context was reached.
-- [ ] **Retry run:** only the gaps cited in `insufficient_reason` were targeted; new findings were merged into the previous report rather than replacing it.
-- [ ] The final output is a single, valid JSON object matching the required schema — no prose, no extra keys.
+- [ ] `get_tool_parameters` is called before every `execute_tool` call.
+- [ ] Symbolic tools (`get_symbols_overview`, `find_symbol`) are used before `read_file` or `search_for_pattern`.
+- [ ] `read_file` / `search_for_pattern` are only used when symbolic tools cannot retrieve the information.
+- [ ] No value in the output is inferred or assumed — all values are tool-discovered.
+- [ ] `find_referencing_symbols` is called for every symbol being modified or deleted.
+- [ ] Exploration starts at the narrowest scope and widens only when necessary.
+- [ ] `package.json` is checked whenever the task involves adding or removing a package.
+- [ ] Each file entry contains only task-relevant lines, capped at 30 lines.
+- [ ] Entries exceeding 30 lines use: first 15 + `// ... truncated ...` + last 15.
+- [ ] If the full file is required: `"entire file required — N lines"` + first 30 lines only.
+- [ ] All source text is exact — no paraphrasing.
+- [ ] Only files, symbols, and packages directly touched by the task are collected.
+- [ ] Execution history is read before any tool calls.
+- [ ] Collection stops as soon as sufficient context exists.
+
+**Retry Run**
+- [ ] Only tool calls that address `insufficient_reason` are issued.
+- [ ] New findings are merged into `previous_context_report` — not appended separately.
+
 
 ---
 
@@ -205,7 +147,7 @@ Return a single JSON object. Nothing else.
 
 EXECUTOR_PROMPT = """\
 ## Role
-You are the Executor. Implement the user task by writing files and symbols and install or remove packages based on the context report.
+You are the Executor. Based on the context from the context_gatherer agent, implement the user task by applying the necessary file and symbol edits, and installing or removing packages as specified in the context report.
 
 ---
 
@@ -214,31 +156,27 @@ You are the Executor. Implement the user task by writing files and symbols and i
 - Only use `create_text_file` to overwrite a file when no symbolic editing tool is suitable for the operation.
 - Always call `get_tool_parameters` before each `execute_tool` call.
 - Never install packages after writing code that uses them — packages always come first.
-- Never repeat an action listed in `actions_already_attempted`.
 - If context is missing → set `status: "needs_context"` immediately. Do not guess or partially proceed.
 
 ---
 
 ## Inputs
-You will receive one of the following:
+Process the provided inputs according to which path is present.
 
-Fresh execution:
+**Path 01: Fresh task**
+Input format:
 ```
 User task: <task>
 Context report: <JSON>
 ```
 
----
-
-Retry after verification failure:
+**Path 02: Verification failure**
+Input format:
 ```
 User task: <task>
-Context report: <JSON>
+Previous Context report: <JSON>
 Verification failure report: <JSON>
-Actions already attempted: <list>
 ```
-
----
 
 - Tool catalog
 ```json
@@ -256,11 +194,10 @@ Depending on the state, proceed down one of the following paths:
 3. **Report last.** Populate `execution_report` only after all writes are complete.
 
 ### Retry run
-1. Read `failure_analysis.root_cause` and `failure_analysis.suggested_fix` first. Use the `context_report` for file paths, symbol names, and package details needed to carry out the fix.
-2. Check `actions_already_attempted` — do not repeat any listed action.
-3. Only issue tool calls that directly address the reported failures.
-4. Append every new action to `actions_attempted` in your output.
-5. If the fix needs information not in the failure report → set `status: "needs_context"` immediately.
+1. Read verification report first. Use the `context_report` for file paths, symbol names, and package details needed to carry out the fix.
+2. Only issue tool calls that directly address the reported failures.
+3. Append every new action to `actions_attempted` in your output.
+4. If the fix needs information not in the failure report → set `status: "needs_context"` immediately.
 
 ---
 
@@ -276,26 +213,21 @@ Depending on the state, proceed down one of the following paths:
 ---
 
 ## Acceptance Criteria
-A run is only considered successful when **all** of the following are true:
-
-- [ ] No symbolic tool was bypassed in favor of `create_text_file` unless no symbolic tool was applicable.
-- [ ] `get_tool_parameters` was called before every `execute_tool` invocation without exception.
-- [ ] No action listed in `actions_already_attempted` was repeated.
-- [ ] `status` was set to `"needs_context"` immediately upon detecting missing context — no partial writes were made.
-- [ ] `context_insufficient_reason` is non-null if and only if `status` is `"needs_context"`.
-- [ ] **Fresh run:** All package operations completed with exit code `0` before any file or symbol write was issued.
-- [ ] **Fresh run:** `execution_report` was populated only after every write operation completed.
-- [ ] **Retry run:** `failure_analysis.root_cause` and `failure_analysis.suggested_fix` were read before issuing any tool call.
-- [ ] **Retry run:** Only tool calls that directly address the reported failure were issued.
-- [ ] **Retry run:** Every new action taken is recorded in `actions_attempted` in the output.
-
+- [ ] Symbolic editing tools are used whenever applicable; `create_text_file` is only used when no symbolic tool fits
+- [ ] `get_tool_parameters` is called before every `execute_tool` call — no exceptions
+- [ ] Packages are installed/removed before any code is written — never after
+- [ ] Missing context triggers immediate `status: "needs_context"` — no partial execution or guessing
+- [ ] All package operations run first and return exit code `0` before any file writes begin
+- [ ] All file/symbol changes are applied only after packages succeed
+- [ ] `execution_report` is populated only after all writes are complete
+- [ ] verification report are read before any tool calls
+- [ ] Only tool calls that directly address the reported failure are issued
 ---
 
 ## Output
 Return a single JSON object. Nothing else.
 ```json
 {{
-  "agent": "executor",
   "status": "success | failure | needs_context",
   "execution_report": {{
     "summary": "...",
@@ -329,7 +261,7 @@ Field rules:
 
 VERIFICATION_PROMPT = """\
 ## Role
-You are the Verifier. Confirm the execution matches the user task intent by inspecting changed files, server logs, and lint results. Do not modify anything.
+You are the Verifier. You're the third agent runs after the context gatherer and the excutor agents, Confirm the execution matches the user task intent by inspecting changed files, server logs, and lint results. Do not modify anything.
 
 ---
 
@@ -338,17 +270,16 @@ You are the Verifier. Confirm the execution matches the user task intent by insp
 - Always prefer symbolic tools for code exploration when possible.
     - For example, instead of using `read_file` to retrieve an entire file for a specific symbol, first use `get_symbols_overview` to get a symbol map (adjust depth as needed), then use `find_symbol` to fetch just the symbol's body.
 - Only use `search_for_pattern` or `read_file` if symbolic tools cannot retrieve the required information
-- Never report a check without first calling the relevant tool and observing the output yourself.
-- Every `checks` and `issues` entry must reference a concrete tool result using this format:
-  `✓ [tool_name → param_summary] finding`
-  `✗ [tool_name → param_summary] finding at file:line`
+- Never report a check with assumptions alwats confirming by calling the relevant tool and observing the output yourself.
 - WARN lines alone do not cause `status: "failed"`. Only CRASH, ERROR, file inspection failures, or lint errors do.
 
 ---
 
 ## Inputs
-- User task (natural language)
-- Execution report (JSON from executor)
+- User task description (in natural language)
+- Execution report (JSON)
+- Context report (executor's context)
+
 - Tool catalog 
 ```json
 {api_tools_catalog}
@@ -372,9 +303,6 @@ Complete every step in order. Do not skip any.
 - Call `get_lint_checks`.
 - Record only error-level violations (not warnings) in `lint_violations` as `"rule: message in file:line"`. If none → record `"no violations found"`.
 
-### 4. Verify symbols modified
-- For each entry in `execution_report.symbols_modified`: confirm it exists with the expected signature, has no lint errors referencing it, and has at least one call site (unless newly created).
-
 ---
 
 ## Conditions
@@ -389,58 +317,41 @@ Complete every step in order. Do not skip any.
 | INFO / DEBUG | Startup messages, route registrations, health checks | Ignore |
 | NOISE | pm2 metadata lines, log file paths, bare timestamps | Ignore |
 
-### `suggested_fix` structure
-When `status: "failed"`, `suggested_fix` must be a structured object (or array for multiple fixes):
-```json
-{{
-  "file": "path/to/file.ts",
-  "symbol": "SymbolName or null",
-  "action": "UPDATE | CREATE | DELETE | INSTALL_PACKAGE | REMOVE_PACKAGE",
-  "description": "Concise instruction for the executor"
-}}
-```
-
 ---
 
 ## Acceptance Criteria
 
-A run is only considered successful when **all** of th
+- [ ] `get_tool_parameters` is called before every `execute_tool` call — except `get_server_logs` and `get_lint_checks`, which never require it
+- [ ] Symbolic tools are used for code exploration first; `search_for_pattern` or `read_file` are only used when symbolic tools cannot retrieve the needed information
+- [ ] No check is reported based on assumptions — every check is confirmed by calling the relevant tool and observing its output
+- [ ] WARN lines alone do not cause `status: "failed"` — only CRASH, ERROR, file inspection failures, or lint errors do
+- [ ] Every changed file in `execution_report.files_changed` is inspected — none are skipped
+- [ ] Each file inspection uses the most appropriate tool from the catalog
+- [ ] `get_server_logs` is called with `lines_count` adjusted if the execution report indicates high output volume
+- [ ] Every log line is classified using the triage table; only ERROR and CRASH lines are recorded in `server_log_errors`
+- [ ] WARN lines are not recorded — their count is noted in `summary` only if > 5
+- [ ] `get_lint_checks` is called and only error-level violations are recorded in `lint_violations` — warnings are excluded
+- [ ] Steps are completed in order: file inspection → server logs → lint
 
-### Rules Compliance
-- [ ] Every `execute_tool` call was preceded by a `get_tool_parameters` call, **except** `get_server_logs` and `get_lint_checks`
-- [ ] Symbolic tools (`get_symbols_overview`, `find_symbol`) were used for code exploration wherever applicable — `read_file` or `search_for_pattern` were only used as fallbacks
-- [ ] Every `checks` and `issues` entry cites a concrete tool result in the required format (`✓/✗ [tool_name → param_summary]`)
-- [ ] No check or issue was reported without a corresponding tool call and observed output
-- [ ] **Step 1 – File Inspection**: Every file listed in `execution_report.files_changed` was individually inspected using an appropriate tool, and each result was classified as `✓` or `✗`
-- [ ] **Step 2 – Server Logs**: `get_server_logs` was called; every line was triaged against the Log Triage table; only ERROR or CRASH lines appear in `server_log_errors`
-- [ ] **Step 3 – Lint**: `get_lint_checks` was called; only error-level violations (not warnings) appear in `lint_violations`
-- [ ] **Step 4 – Symbol Verification**: Every entry in `execution_report.symbols_modified` was confirmed to exist with its expected signature, checked for lint errors, and verified to have at least one call site (unless newly created)
 ---
 
 ## Output
 Return a single JSON object. Nothing else.
 ```json
 {{
-  "agent": "verification",
   "status": "passed | failed",
   "summary": "...",
   "checks": [
-    "✓ [tool_name → param_summary] description"
+    "✓ step done description"
   ],
   "issues": [
-    "✗ [tool_name → param_summary] description at file:line"
+    "✗ step done description"
   ],
   "server_log_errors": ["...or 'no errors found'"],
   "lint_violations": ["...or 'no violations found'"],
   "failure_analysis": {{
     "root_cause": "...",
     "requires_context_regathering": false,
-    "suggested_fix": {{
-      "file": "...",
-      "symbol": "...or null",
-      "action": "UPDATE | CREATE | DELETE | INSTALL_PACKAGE | REMOVE_PACKAGE",
-      "description": "..."
-    }}
   }}
 }}
 ```
@@ -448,7 +359,6 @@ Return a single JSON object. Nothing else.
 Field rules:
 - `failure_analysis` and `issues`: present only when `status: "failed"`. Omit entirely otherwise.
 - `checks`: always present.
-- `suggested_fix`: may be a single object or an array when multiple fixes are needed.
 """
 
 # ---------------------------------------------------------------------------
@@ -741,29 +651,32 @@ WRITE_TOOLS = [
 # ---------------------------------------------------------------------------
 
 
-class OrchestratorDecision(BaseModel):
-    next_action: Literal["context_gatherer", "executor", "verification", "end"] = Field(
-        description=(
-            "The next step in the workflow. Use 'end' only after verification passes "
-            "or to deliver a final informational answer."
-        )
-    )
-    subagent_message: Optional[str] = Field(
-        default=None,
-        description=(
-            "Full message to pass to the next subagent. Must include the user task "
-            "and any relevant JSON reports exactly as received. Required unless "
-            "next_action is 'end'."
-        ),
-    )
-    final_response: Optional[str] = Field(
-        default=None,
-        description=(
-            "Plain-language summary for the user. Required when next_action is 'end'. "
-            "Cover what was done, files changed, packages installed, and next steps "
-            "if the task did not complete."
-        ),
-    )
+class Status(str, Enum):
+    passed = "passed"
+    failed = "failed"
+
+
+class Action(str, Enum):
+    update = "UPDATE"
+    create = "CREATE"
+    delete = "DELETE"
+    install_package = "INSTALL_PACKAGE"
+    remove_package = "REMOVE_PACKAGE"
+
+
+class FailureAnalysis(BaseModel):
+    root_cause: str
+    requires_context_regathering: bool = False
+
+
+class VerificationReport(BaseModel):
+    status: Status
+    summary: str
+    checks: list[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+    server_log_errors: list[str] = Field(default_factory=list)
+    lint_violations: list[str] = Field(default_factory=list)
+    failure_analysis: Optional[FailureAnalysis] = None
 
 
 # ---------------------------------------------------------------------------
@@ -775,57 +688,11 @@ class AgentState(MessagesState):
     sandbox_id: str
     model_id: Optional[str]
     model_provider: Optional[str]
-    # Set by the orchestrator, consumed by subagent nodes
-    next_action: Optional[str]
-    subagent_message: Optional[str]
-    orchestration_messages: List[BaseMessage] = []
-
-
-# ---------------------------------------------------------------------------
-# ORCHESTRATOR NODE
-# ---------------------------------------------------------------------------
-
-
-async def orchestrator_node(state: AgentState, config: RunnableConfig) -> dict:
-    """
-    Reads the full message history (user task + any subagent reports already
-    appended), calls the model with structured output, and writes the routing
-    decision back into the state.
-    """
-    model = build_model(
-        model_id=state.get("model_id") or DEFAULT_MODEL_ID,
-        provider=state.get("model_provider") or DEFAULT_MODEL_PROVIDER,
-    )
-    structured_model = model.with_structured_output(OrchestratorDecision)
-    messages = state.get("messages", [])
-    orchestration_messages = state.get("orchestration_messages", [])
-    if isinstance(messages[-1], HumanMessage):
-        orchestration_messages.append(messages[-1])
-
-    messages_input = [SystemMessage(content=ORCHESTRATOR_PROMPT)] + orchestration_messages
-    
-    decision: OrchestratorDecision = await structured_model.ainvoke(messages_input)
-
-    updates: dict = {
-        "next_action": decision.next_action,
-        "subagent_message": decision.subagent_message,
-    }
-
-    # When the workflow ends, surface the final response as an AI message so
-    # the caller sees it in the messages list.
-    if decision.next_action == "end" and decision.final_response:
-        updates["messages"] = [
-            *messages,
-            AIMessage(content=decision.final_response),
-        ]
-        updates["orchestration_messages"] = [AIMessage(content=decision.final_response)]
-
-    return updates
-
-
-def route_orchestrator(state: AgentState) -> str:
-    """Edge function: routes to the chosen subagent node or END."""
-    return state.get("next_action") or "end"
+    retry_count: int = 0
+    verification_report: Optional[str] = None
+    context_report: Optional[str] = None
+    user_message: Optional[HumanMessage] = None
+    executor_messages: List[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -835,34 +702,37 @@ def route_orchestrator(state: AgentState) -> str:
 
 async def _run_subagent(
     *,
-    system_prompt: str,
-    tools: list,
     state: AgentState,
     agent_name: str,
+    system_prompt: str,
+    messages: list[BaseMessage] = [],
+    structured_output: Optional[BaseModel] = None,
+    tools: list,
 ) -> dict:
-    """
-    Creates a stateless subagent, invokes it with the orchestrator-composed
-    message, and returns the last message appended to the state under the
-    subagent's name so the orchestrator can read the full history on its
-    next turn.
-    """
     model = build_model(
         model_id=state.get("model_id") or DEFAULT_MODEL_ID,
         provider=state.get("model_provider") or DEFAULT_MODEL_PROVIDER,
     )
-    agent = create_agent(model, system_prompt=system_prompt, tools=tools)
 
-    subagent_message = state.get("subagent_message") or ""
-    print("subagent_message", subagent_message)
-    result = await agent.ainvoke({"messages": [HumanMessage(content=subagent_message)]})
+    if structured_output:
+        agent = create_agent(
+            model,
+            system_prompt=system_prompt,
+            tools=tools,
+            response_format=structured_output,
+            name=agent_name,
+        )
+    else:
+        agent = create_agent(
+            model,
+            system_prompt=system_prompt,
+            tools=tools,
+            name=agent_name,
+        )
 
-    last_content = result["messages"][-1].content
-    # Append as an AIMessage named after the subagent so the orchestrator can
-    # identify which agent produced which report in the shared message history.
-    return {
-        "orchestration_messages": [AIMessage(content=last_content, name=agent_name)],
-        "messages": [*state.get("messages"), AIMessage(content=last_content, name=agent_name)],
-    }
+    result = await agent.ainvoke({"messages": messages})
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -880,13 +750,50 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
     system_prompt = PromptTemplate.from_template(CONTEXT_GATHERER_PROMPT).format(
         api_tools_catalog=read_definitions.get_sandbox_tools_without_params()
     )
+    messages = state.get("messages")
+    verification_report = state.get("verification_report")
+    context_report = state.get("context_report")
+    executor_messages = state.get("executor_messages")
 
-    return await _run_subagent(
+    user_message = next(
+        (
+            message
+            for message in reversed(messages)
+            if isinstance(message, HumanMessage)
+        ),
+        None,
+    )
+    if user_message is None:
+        raise Exception("User task is required!")
+
+    if verification_report is not None:
+        messages_input = [
+            HumanMessage(
+                f"User Task: {user_message.content}\n"
+                f"Verification Report: {verification_report}\n"
+                f"Previous Context Report: {context_report}"
+            )
+        ]
+    else:
+        messages_input = [
+            HumanMessage(
+                f"User Task: {user_message.content}\n\n\n---\n\n\nExecutions History: {'\n---\n'.join(executor_messages)}"
+            )
+        ]
+
+    result = await _run_subagent(
         system_prompt=system_prompt,
         tools=[lc_tools["execute_tool"], read_get_params],
         state=state,
         agent_name="context_gatherer",
+        messages=messages_input,
     )
+    context_report = result["messages"][-1].content
+    return {
+        "messages": result["messages"],
+        "user_message": user_message,
+        "context_report": context_report,
+    }
 
 
 async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -899,8 +806,28 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
     system_prompt = PromptTemplate.from_template(EXECUTOR_PROMPT).format(
         api_tools_catalog=write_definitions.get_sandbox_tools_without_params()
     )
+    context_report = state.get("context_report")
+    verification_report = state.get("verification_report")
+    user_message = state.get("user_message")
+    if context_report is None or user_message is None:
+        raise Exception("Context report and user task are required!")
 
-    return await _run_subagent(
+    if verification_report is not None:
+        messages_input = [
+            HumanMessage(
+                f"User Task: {user_message.content}\n"
+                f"Verification Report: {verification_report}\n"
+                f"Context Report: {context_report}"
+            )
+        ]
+    else:
+        messages_input = [
+            HumanMessage(
+                f"User Task: {user_message.content}\n---\nContext Report: {context_report}"
+            )
+        ]
+
+    result = await _run_subagent(
         system_prompt=system_prompt,
         tools=[
             lc_tools["execute_tool"],
@@ -908,8 +835,15 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
             lc_tools["manage_npm_package"],
         ],
         state=state,
+        messages=messages_input,
         agent_name="executor",
     )
+
+    executor_messages = state.get("executor_messages") or []  # FIX: guard against None
+    return {
+        "messages": result["messages"],
+        "executor_messages": [*executor_messages, result["messages"][-1].content],
+    }
 
 
 async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -923,7 +857,23 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         api_tools_catalog=read_definitions.get_sandbox_tools_without_params()
     )
 
-    return await _run_subagent(
+    user_message = state.get("user_message")
+    context_report = state.get("context_report")
+    retry_count = state.get("retry_count")
+    messages = state.get("messages", [])
+    execution_report = next(
+        (m for m in reversed(messages) if isinstance(m, AIMessage)),
+        None,
+    )
+    messages_input = [
+        HumanMessage(
+            f"User Task: {user_message.content}\n"
+            f"Context Report: {context_report}\n"
+            f"Execution Report: {execution_report.content if execution_report else ''}"
+        )
+    ]
+
+    result = await _run_subagent(
         system_prompt=system_prompt,
         tools=[
             lc_tools["execute_tool"],
@@ -933,6 +883,33 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         ],
         state=state,
         agent_name="verification",
+        structured_output=VerificationReport,
+        messages=messages_input,  # FIX: was missing entirely
+    )
+
+    structured_response = result["structured_response"]
+    verification_report = None
+    next_node = END
+    MAX_RETRIES = 3
+    if structured_response.status == Status.failed and retry_count < MAX_RETRIES:
+        retry_count = retry_count + 1
+        verification_report = structured_response.model_dump_json()
+        next_node = "executor"
+        if (
+            structured_response.failure_analysis
+            and structured_response.failure_analysis.requires_context_regathering
+        ):
+            next_node = "context_gatherer"
+    else:
+        retry_count = 0
+
+    return Command(
+        update={
+            "messages": result["messages"],
+            "verification_report": verification_report,
+            "retry_count": retry_count,
+        },
+        goto=next_node,
     )
 
 
@@ -942,38 +919,12 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
 
 coding_workflow = StateGraph(AgentState)
 
-coding_workflow.add_node("orchestrator", orchestrator_node)
 coding_workflow.add_node("context_gatherer", context_gatherer_node)
 coding_workflow.add_node("executor", executor_node)
 coding_workflow.add_node("verification", verification_node)
 
-coding_workflow.add_edge(START, "orchestrator")
-
-coding_workflow.add_conditional_edges(
-    "orchestrator",
-    route_orchestrator,
-    {
-        "context_gatherer": "context_gatherer",
-        "executor": "executor",
-        "verification": "verification",
-        "end": END,
-    },
-)
-
-# Every subagent returns control to the orchestrator after completing.
-coding_workflow.add_edge("context_gatherer", "orchestrator")
-coding_workflow.add_edge("executor", "orchestrator")
-coding_workflow.add_edge("verification", "orchestrator")
-
+# FIX: edge names must match the registered node names above (no "_node" suffix)
+coding_workflow.add_edge(START, "context_gatherer")
+coding_workflow.add_edge("context_gatherer", "executor")
+coding_workflow.add_edge("executor", "verification")
 coding_graph = coding_workflow.compile(checkpointer=InMemorySaver())
-
-
-# ---------------------------------------------------------------------------
-# ENTRY POINT (unchanged utility)
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    write_definitions = BuildSandboxToolsDefinitions(allowed_tools=WRITE_TOOLS)
-    result = write_definitions.get_sandbox_tools_without_params()
-    with open("output/updated_json_write_tools.json", "w") as f:
-        f.write(result)

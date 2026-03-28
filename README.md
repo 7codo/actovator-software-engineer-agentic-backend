@@ -1,3 +1,17 @@
+## INPROGRESS
+- [] testing the coding worklow
+- [] simplify the coding workflow
+
+## TODO (MVP 1 - First Market Value)
+- [] Add the E2E testing node
+- [] Add the lemonsqueezy
+- [] Add the memory (using the new research paper instead of RAG I think it based on files)
+- [] Add the package auditor node
+- [] Add the shadcn skills, main nextjs skill towards the project | try the shadcn cli
+- [] Add deploy checklist (add sentry, loggin ) | logging must be implement when building the sandbox (I think)
+- [] Add secrets settings
+
+
 ['read_file', 'create_text_file', 'list_dir', 'find_file', 'replace_content', 'delete_lines', 'replace_lines', 'insert_at_line', 'search_for_pattern', 'restart_language_server', 'active_language_server', 'get_symbols_overview', 'find_symbol', 'find_referencing_symbols', 'replace_symbol_body', 'insert_after_symbol', 'insert_before_symbol', 'rename_symbol', 'execute_shell_command']
 
 ## editing tools
