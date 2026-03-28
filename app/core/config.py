@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env.local", env_file_encoding="utf-8", case_sensitive=False
+        env_file=".env.local", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
 

@@ -500,7 +500,7 @@ class BuildSandboxTools:
 
         payload = json.dumps(tool_params)
         digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
-        payload_path = f"/tmp/payload_{digest}.json"
+        payload_path = f"/home/user/payload_{digest}.json"
 
         try:
             sandbox = await self._get_sandbox()
@@ -775,11 +775,18 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
             )
         ]
     else:
-        messages_input = [
-            HumanMessage(
-                f"User Task: {user_message.content}\n\n\n---\n\n\nExecutions History: {'\n---\n'.join(executor_messages)}"
-            )
-        ]
+        if  executor_messages is None:
+            messages_input = [
+                HumanMessage(
+                    f"User Task: {user_message.content}"
+                )
+            ]
+        else:
+            messages_input = [
+                HumanMessage(
+                    f"User Task: {user_message.content}\n\n\n---\n\n\nExecutions History: {'\n---\n'.join(executor_messages)}"
+                )
+            ]
 
     result = await _run_subagent(
         system_prompt=system_prompt,
@@ -884,7 +891,7 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         state=state,
         agent_name="verification",
         structured_output=VerificationReport,
-        messages=messages_input,  # FIX: was missing entirely
+        messages=messages_input, 
     )
 
     structured_response = result["structured_response"]
@@ -928,3 +935,9 @@ coding_workflow.add_edge(START, "context_gatherer")
 coding_workflow.add_edge("context_gatherer", "executor")
 coding_workflow.add_edge("executor", "verification")
 coding_graph = coding_workflow.compile(checkpointer=InMemorySaver())
+
+if __name__ == "__main__":
+    import asyncio
+    read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
+    result = read_definitions.get_sandbox_tool_parameters("find_symbol")
+    print("result", result)
