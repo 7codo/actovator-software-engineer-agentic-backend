@@ -1,7 +1,7 @@
 from langchain.agents import create_agent
 import json
 from typing import Optional, List
-
+from jsonschema import Draft7Validator
 from e2b import AsyncSandbox
 from langchain.tools import tool
 from pydantic import BaseModel, Field
@@ -431,8 +431,60 @@ class BuildSandboxTools:
     Builds and exposes sandbox tools for interacting with an E2B AsyncSandbox.
     """
 
-    def __init__(self, sdbx_id: str) -> None:
+    def __init__(
+        self,
+        sdbx_id: str,
+        tools_definitions: Optional["BuildSandboxToolsDefinitions"] = None,
+    ) -> None:
         self.sdbx_id = sdbx_id
+        self._tools_definitions = tools_definitions
+
+    def _validate_tool_params(self, tool_name: str, tool_params: dict) -> Optional[str]:
+        """
+        Validates tool_params against the tool's parameter schema.
+        Returns a human-readable error string on failure, or None if valid.
+        """
+        if self._tools_definitions is None:
+            return None  # No definitions injected — skip validation
+
+        raw_schema = self._tools_definitions.get_sandbox_tool_parameters(tool_name)
+        schema = json.loads(raw_schema)
+
+        if "error" in schema:
+            return (
+                f"Unknown tool '{tool_name}'. "
+                f"Available tools: {', '.join(t['name'] for t in self._tools_definitions.tools)}"
+            )
+
+        validator = Draft7Validator(schema)
+        errors = sorted(validator.iter_errors(tool_params), key=lambda e: list(e.path))
+
+        if not errors:
+            return None
+
+        messages = []
+        for err in errors:
+            location = (
+                " → ".join(str(p) for p in err.absolute_path)
+                if err.absolute_path
+                else "root"
+            )
+            messages.append(f"  • [{location}] {err.message}")
+
+        required_props = schema.get("properties", {})
+        hint_lines = [
+            f"    - {name}: {meta.get('type', 'any')} — {meta.get('description', '')}"
+            for name, meta in required_props.items()
+        ]
+        hint_block = (
+            "\nExpected parameters:\n" + "\n".join(hint_lines) if hint_lines else ""
+        )
+
+        return (
+            f"Validation failed for tool '{tool_name}':\n"
+            + "\n".join(messages)
+            + hint_block
+        )
 
     async def _get_sandbox(self) -> AsyncSandbox:
         return await AsyncSandbox.connect(
@@ -496,11 +548,19 @@ class BuildSandboxTools:
             return f"[{type(e).__name__}] Failed to run lint checks: {e}"
 
     async def execute_tool(self, tool_name: str, tool_params: dict) -> dict:
+        validation_error = self._validate_tool_params(tool_name, tool_params)
+        if validation_error:
+            return {
+                "stdout": "",
+                "stderr": validation_error,
+                "exit_code": 1,
+            }
+
         import hashlib
 
         payload = json.dumps(tool_params)
         digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
-        payload_path = f"/home/user/payload_{digest}.json"
+        payload_path = f"/tmp/payload_{digest}.json"
 
         try:
             sandbox = await self._get_sandbox()
@@ -741,11 +801,12 @@ async def _run_subagent(
 
 
 async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> dict:
-    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
-    lc_tools = sandbox_builder.as_langchain_tools()
-
     read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
     read_get_params = read_definitions.as_langchain_tools()["get_tool_parameters"]
+    sandbox_builder = BuildSandboxTools(
+        state["sandbox_id"], tools_definitions=read_definitions
+    )
+    lc_tools = sandbox_builder.as_langchain_tools()
 
     system_prompt = PromptTemplate.from_template(CONTEXT_GATHERER_PROMPT).format(
         api_tools_catalog=read_definitions.get_sandbox_tools_without_params()
@@ -775,12 +836,8 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
             )
         ]
     else:
-        if  executor_messages is None:
-            messages_input = [
-                HumanMessage(
-                    f"User Task: {user_message.content}"
-                )
-            ]
+        if executor_messages is None:
+            messages_input = [HumanMessage(f"User Task: {user_message.content}")]
         else:
             messages_input = [
                 HumanMessage(
@@ -804,11 +861,12 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
 
 
 async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
-    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
-    lc_tools = sandbox_builder.as_langchain_tools()
-
     write_definitions = BuildSandboxToolsDefinitions(allowed_tools=WRITE_TOOLS)
     write_get_params = write_definitions.as_langchain_tools()["get_tool_parameters"]
+    sandbox_builder = BuildSandboxTools(
+        state["sandbox_id"], tools_definitions=write_definitions
+    )
+    lc_tools = sandbox_builder.as_langchain_tools()
 
     system_prompt = PromptTemplate.from_template(EXECUTOR_PROMPT).format(
         api_tools_catalog=write_definitions.get_sandbox_tools_without_params()
@@ -854,11 +912,12 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
 
 
 async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
-    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
-    lc_tools = sandbox_builder.as_langchain_tools()
-
     read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
     read_get_params = read_definitions.as_langchain_tools()["get_tool_parameters"]
+    sandbox_builder = BuildSandboxTools(
+        state["sandbox_id"], tools_definitions=read_definitions
+    )
+    lc_tools = sandbox_builder.as_langchain_tools()
 
     system_prompt = PromptTemplate.from_template(VERIFICATION_PROMPT).format(
         api_tools_catalog=read_definitions.get_sandbox_tools_without_params()
@@ -891,7 +950,7 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         state=state,
         agent_name="verification",
         structured_output=VerificationReport,
-        messages=messages_input, 
+        messages=messages_input,
     )
 
     structured_response = result["structured_response"]
@@ -936,8 +995,9 @@ coding_workflow.add_edge("context_gatherer", "executor")
 coding_workflow.add_edge("executor", "verification")
 coding_graph = coding_workflow.compile(checkpointer=InMemorySaver())
 
-if __name__ == "__main__":
-    import asyncio
-    read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
-    result = read_definitions.get_sandbox_tool_parameters("find_symbol")
-    print("result", result)
+# if __name__ == "__main__":
+#     import asyncio
+
+#     read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
+#     result = read_definitions.get_sandbox_tool_parameters("find_symbol")
+#     print("result", result)
