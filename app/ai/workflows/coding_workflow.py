@@ -438,6 +438,7 @@ class BuildSandboxTools:
     ) -> None:
         self.sdbx_id = sdbx_id
         self._tools_definitions = tools_definitions
+        self._sandbox: Optional[AsyncSandbox] = None
 
     def _validate_tool_params(self, tool_name: str, tool_params: dict) -> Optional[str]:
         """
@@ -487,9 +488,11 @@ class BuildSandboxTools:
         )
 
     async def _get_sandbox(self) -> AsyncSandbox:
-        return await AsyncSandbox.connect(
-            sandbox_id=self.sdbx_id, api_key=settings.e2b_api_key
-        )
+        if self._sandbox is None:
+            self._sandbox = await AsyncSandbox.connect(
+                sandbox_id=self.sdbx_id, api_key=settings.e2b_api_key
+            )
+        return self._sandbox
 
     def _shell_error(self, context: str, exc: Exception) -> dict:
         return {
@@ -995,9 +998,17 @@ coding_workflow.add_edge("context_gatherer", "executor")
 coding_workflow.add_edge("executor", "verification")
 coding_graph = coding_workflow.compile(checkpointer=InMemorySaver())
 
-# if __name__ == "__main__":
-#     import asyncio
+if __name__ == "__main__":
+    import asyncio
 
-#     read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
-#     result = read_definitions.get_sandbox_tool_parameters("find_symbol")
-#     print("result", result)
+    read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
+    sandbox_builder = BuildSandboxTools(
+        "i3u17p0kvx2s4cns0c8lc", tools_definitions=read_definitions
+    )
+
+    result = asyncio.run(
+        sandbox_builder.execute_tool(
+            tool_name="list_dir", tool_params={"relative_path": "src"}
+        )
+    )
+    print(result)
