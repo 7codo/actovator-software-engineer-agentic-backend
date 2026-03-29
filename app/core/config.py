@@ -13,9 +13,9 @@ class Settings(BaseSettings):
     azure_api_key: str = ""
     azure_endpoint: str = ""
     openrouter_api_key: str = ""
+    anthropic_api_key: str = ""
     langsmith_tracing: str = ""
     langsmith_api_key: str = ""
-    langsmith_workspace_id: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env.local", env_file_encoding="utf-8", case_sensitive=False
@@ -27,7 +27,15 @@ settings = Settings()
 if not os.environ.get("GOOGLE_API_KEY"):
     os.environ["GOOGLE_API_KEY"] = settings.google_api_key
 
+if not os.environ.get("ANTHROPIC_API_KEY"):
+    os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+
+
 if not os.environ.get("LANGSMITH_TRACING"):
     os.environ["LANGSMITH_TRACING"] = settings.langsmith_tracing
+
+if not os.environ.get("LANGSMITH_API_KEY"):
     os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
-    os.environ["LANGSMITH_WORKSPACE_ID"] = settings.langsmith_workspace_id
+
+print(os.environ.get("LANGSMITH_TRACING"))
+print(os.environ.get("LANGSMITH_API_KEY"))

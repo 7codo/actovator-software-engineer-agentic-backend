@@ -6,21 +6,15 @@ from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 from langchain_openrouter import ChatOpenRouter
 from app.core.config import settings
 
-model = ChatOpenRouter(
-    model="xiaomi/mimo-v2-pro",
-    temperature=0,
-    max_retries=7,
-    api_key=settings.openrouter_api_key,
-)
-
 # Add explicit list of supported providers and model IDs for completion
-Provider = Literal["google_genai",]
+Provider = Literal["google_genai", "anthropic"]
 
 ModelId = Literal[
     "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
     "gemini-3-flash-preview",  # It's hallucianite
     "gemini-pro-latest",
+    "claude-sonnet-4-6",
 ]
 
 
@@ -50,3 +44,9 @@ def build_model_from_state(state: State):
     model_id = state.get("model_id", DEFAULT_MODEL_ID)
     model = build_model(provider=model_provider, model_id=model_id)
     return model
+
+
+if __name__ == "__main__":
+    model = build_model()
+    result = model.invoke(["Hi"])
+    print(result)

@@ -76,3 +76,7 @@ def build_changelog_tools(sdbx_id: str) -> dict[str, BaseTool]:
         return f"No matches for '{keyword}' in releases between {known_version} and {current_version}."
 
     return {"search_changelogs": search_changelogs}
+
+
+if __name__ == "__main__":
+    releases = fetch_all_releases("shadcn-ui", "ui")
