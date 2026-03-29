@@ -1,10 +1,3 @@
-"""
-Notes:
-- add-repository doesn't work even with root permission so I use curl instead
-- additionally, we clone the public repo https://github.com/7codo/serena to /home/user
-- then, we run the FastAPI app using: uv run serena-server --project PROJECT_PATH
-"""
-
 from e2b import Template, default_build_logger, wait_for_url, wait_for_port
 from app.constants import PROJECT_PATH
 from app.core.config import settings
@@ -42,20 +35,10 @@ def install_global_tools_cmds():
     ]
 
 
-def install_playwright_and_agent_browser_cmds():
+def install_lightpanda_and_agent_browser_cmds():
     return [
-        "npx playwright install chromium",
-        "npx playwright install-deps chromium",
+        "curl -L -o /usr/local/bin/lightpanda https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux && chmod a+x /usr/local/bin/lightpanda",
         "npm install -g agent-browser",
-        "agent-browser install",
-        "agent-browser install --with-deps",
-        (
-            "apt-get install -y "
-            "libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libatk1.0-0 libatk-bridge2.0-0 "
-            "libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 "
-            "libgbm1 libasound2 libnspr4 libnss3 libx11-6 libxcb1 libxext6 libxss1 libxtst6 "
-            "fonts-liberation libappindicator3-1 libu2f-udev libvulkan1"
-        ),  # for Chromium
     ]
 
 
@@ -74,11 +57,11 @@ def set_shadcn_init_cmds():
     return ["npx shadcn@latest init -d", "npx shadcn@latest add button"]
 
 
-def run_init_next_script_cmd():
-    return [
-        "chmod +x .actovator/init-next.sh && .actovator/init-next.sh",
-        "rm .actovator/init-next.sh",
-    ]
+# def run_init_next_script_cmd():
+#     return [
+#         "chmod +x .actovator/init-next.sh && .actovator/init-next.sh",
+#         "rm .actovator/init-next.sh",
+#     ]
 
 
 def write_tech_stack_json_cmd():
@@ -102,25 +85,25 @@ template = (
     .run_cmd(install_python_313_cmd(), user="root")
     .run_cmd(install_github_cli_cmd(), user="root")
     .run_cmd(install_global_tools_cmds(), user="root")
-    .run_cmd(install_playwright_and_agent_browser_cmds(), user="root")
+    .run_cmd(install_lightpanda_and_agent_browser_cmds(), user="root")
     .run_cmd(clone_serena_repo_cmd())
     .set_user("user")
     .set_workdir(PROJECT_PATH)
     .run_cmd(
         'npx create-next-app . --ts --tailwind --eslint --import-alias "@/*" '
-        "--use-npm --app --no-react-compiler --src-dir --turbopack"
+        "--use-npm --app --no-react-compiler --src-dir --turbopack --yes"
     )
     .run_cmd(init_actovator_cmd())
     .run_cmd(create_test_directories_cmd())
     .run_cmd(set_shadcn_init_cmds())
-    .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
-    .run_cmd(run_init_next_script_cmd())
+    # .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
+    # .run_cmd(run_init_next_script_cmd())
     .run_cmd(write_tech_stack_json_cmd())
-.set_start_cmd(
-    f'pm2 start npm --name "project" -- run dev ; '
-    f'pm2 start uv --name "serena" -- run --directory /home/user/serena serena-server --project {PROJECT_PATH}',
-    wait_for_url("http://localhost:3000"),
-)
+    .set_start_cmd(
+        f'pm2 start npm --name "project" -- run dev ; '
+        f'pm2 start uv --name "serena" -- run --directory /home/user/serena serena-server --project {PROJECT_PATH}',
+        wait_for_url("http://localhost:3000"),
+    )
 )
 
 Template.build(

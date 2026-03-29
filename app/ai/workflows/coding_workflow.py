@@ -4,7 +4,7 @@ from typing import Optional, List
 from jsonschema import Draft7Validator
 from e2b import AsyncSandbox
 from langchain.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from langgraph.types import Command
 from app.ai.llm.models import build_model
 from app.constants import PROJECT_PATH
@@ -15,7 +15,6 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
-from enum import Enum
 from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 
 
@@ -272,6 +271,7 @@ You are the Verifier. You're the third agent runs after the context gatherer and
 - Only use `search_for_pattern` or `read_file` if symbolic tools cannot retrieve the required information
 - Never report a check with assumptions alwats confirming by calling the relevant tool and observing the output yourself.
 - WARN lines alone do not cause `status: "failed"`. Only CRASH, ERROR, file inspection failures, or lint errors do.
+- Your FINAL response must be a single valid JSON object. Do not include markdown code fences, preamble, or any text outside the JSON object.
 
 ---
 
@@ -332,6 +332,7 @@ Complete every step in order. Do not skip any.
 - [ ] WARN lines are not recorded — their count is noted in `summary` only if > 5
 - [ ] `get_lint_checks` is called and only error-level violations are recorded in `lint_violations` — warnings are excluded
 - [ ] Steps are completed in order: file inspection → server logs → lint
+- [ ] The final response is a single valid JSON object — no markdown fences, no leading or trailing text
 
 ---
 
@@ -714,34 +715,6 @@ WRITE_TOOLS = [
 # ---------------------------------------------------------------------------
 
 
-class Status(str, Enum):
-    passed = "passed"
-    failed = "failed"
-
-
-class Action(str, Enum):
-    update = "UPDATE"
-    create = "CREATE"
-    delete = "DELETE"
-    install_package = "INSTALL_PACKAGE"
-    remove_package = "REMOVE_PACKAGE"
-
-
-class FailureAnalysis(BaseModel):
-    root_cause: str
-    requires_context_regathering: bool = False
-
-
-class VerificationReport(BaseModel):
-    status: Status
-    summary: str
-    checks: list[str] = Field(default_factory=list)
-    issues: list[str] = Field(default_factory=list)
-    server_log_errors: list[str] = Field(default_factory=list)
-    lint_violations: list[str] = Field(default_factory=list)
-    failure_analysis: Optional[FailureAnalysis] = None
-
-
 # ---------------------------------------------------------------------------
 # GRAPH STATE
 # ---------------------------------------------------------------------------
@@ -907,7 +880,7 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
         agent_name="executor",
     )
 
-    executor_messages = state.get("executor_messages") or []  # FIX: guard against None
+    executor_messages = state.get("executor_messages") or []
     return {
         "messages": result["messages"],
         "executor_messages": [*executor_messages, result["messages"][-1].content],
@@ -952,22 +925,21 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         ],
         state=state,
         agent_name="verification",
-        structured_output=VerificationReport,
         messages=messages_input,
     )
 
-    structured_response = result["structured_response"]
+    raw = result["messages"][-1].content
+    report = json.loads(raw)
+
     verification_report = None
     next_node = END
     MAX_RETRIES = 3
-    if structured_response.status == Status.failed and retry_count < MAX_RETRIES:
+    if report.get("status") == "failed" and retry_count < MAX_RETRIES:
         retry_count = retry_count + 1
-        verification_report = structured_response.model_dump_json()
+        verification_report = raw
         next_node = "executor"
-        if (
-            structured_response.failure_analysis
-            and structured_response.failure_analysis.requires_context_regathering
-        ):
+        failure_analysis = report.get("failure_analysis") or {}
+        if failure_analysis.get("requires_context_regathering"):
             next_node = "context_gatherer"
     else:
         retry_count = 0
@@ -992,7 +964,7 @@ coding_workflow.add_node("context_gatherer", context_gatherer_node)
 coding_workflow.add_node("executor", executor_node)
 coding_workflow.add_node("verification", verification_node)
 
-# FIX: edge names must match the registered node names above (no "_node" suffix)
+
 coding_workflow.add_edge(START, "context_gatherer")
 coding_workflow.add_edge("context_gatherer", "executor")
 coding_workflow.add_edge("executor", "verification")

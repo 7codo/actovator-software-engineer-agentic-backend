@@ -19,6 +19,7 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
         auto_pause=True,
         envs={
             "NEXT_TELEMETRY_DISABLED": "1",
+            "AGENT_BROWSER_ENGINE": "lightpanda",
             "GITHUB_TOKEN": github_token or "",
         },
     )
@@ -150,10 +151,10 @@ async def kill_sandbox(sandbox_id: str):  ## kill for beta save sandbox meaning 
 
 
 
-if __name__ == "__main__":
-    import asyncio
-    import httpx
+# if __name__ == "__main__":
+#     import asyncio
+#     import httpx
     
 
-    # Run the async function
-    asyncio.run(restart_server())
+#     # Run the async function
+#     asyncio.run(restart_server())
