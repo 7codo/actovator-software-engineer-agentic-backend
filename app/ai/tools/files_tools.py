@@ -1,7 +1,6 @@
 from langchain.tools import tool
 
-from app.ai.skills import AGENT_BROWSER_COMMANDS_REF, CODE_EDITING_TOOLS_SKILL
-from app.utils.files_utils import build_skills_index
+from app.ai.skills.agent_browser import AGENT_BROWSER_COMMANDS_REF, AGENT_BROWSER_SKILL
 
 
 @tool
@@ -13,15 +12,11 @@ def load_agent_browser_commands_ref() -> str:
     return AGENT_BROWSER_COMMANDS_REF
 
 
-skills_files = [CODE_EDITING_TOOLS_SKILL]
-skill_by_name, _ = build_skills_index(skills_files)
-
-
 @tool
-def load_skill(name: str) -> str:
+def get_agent_browser_skill() -> str:
     """
-    Loads and returns specific skill
-    Use this tool when you want to read a skill
+    Use this tool before you start executing agent-browser commands.
+    Returns:
+        The agent-browser CLI guide needed to perform browser testing.
     """
-    body = skill_by_name.get(name)
-    return body or "No skills found with this name"
+    return AGENT_BROWSER_SKILL

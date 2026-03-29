@@ -1,4 +1,4 @@
-from e2b import Template, default_build_logger, wait_for_url, wait_for_port
+from e2b import Template, default_build_logger, wait_for_url
 from app.constants import PROJECT_PATH
 from app.core.config import settings
 

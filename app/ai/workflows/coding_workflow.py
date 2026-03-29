@@ -1,5 +1,6 @@
-from langchain.agents import create_agent
+import re
 import json
+from langchain.agents import create_agent
 from typing import Optional, List
 from jsonschema import Draft7Validator
 from e2b import AsyncSandbox
@@ -7,10 +8,11 @@ from langchain.tools import tool
 from pydantic import BaseModel
 from langgraph.types import Command
 from app.ai.llm.models import build_model
+from app.ai.tools.files_tools import get_agent_browser_skill
 from app.constants import PROJECT_PATH
 from app.core.config import settings
 from langgraph.graph.message import MessagesState
-from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
+from langchain_core.messages import HumanMessage, BaseMessage
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
@@ -272,13 +274,19 @@ You are the Verifier. You're the third agent runs after the context gatherer and
 - Never report a check with assumptions alwats confirming by calling the relevant tool and observing the output yourself.
 - WARN lines alone do not cause `status: "failed"`. Only CRASH, ERROR, file inspection failures, or lint errors do.
 - Your FINAL response must be a single valid JSON object. Do not include markdown code fences, preamble, or any text outside the JSON object.
+- - When the input is an E2E failure report, focus verification exclusively on the failures described in that report — do not re-verify unrelated files.
 
 ---
 
 ## Inputs
+
+### Normal Path
 - User task description (in natural language)
 - Execution report (JSON)
 - Context report (executor's context)
+
+### E2E Failure Path
+- E2E testing failed report (JSON) — provided when e2e testing did not pass
 
 - Tool catalog 
 ```json
@@ -288,20 +296,26 @@ You are the Verifier. You're the third agent runs after the context gatherer and
 ---
 
 ## Workflow
-Complete every step in order. Do not skip any.
+Determine which path applies, then complete every step in order. Do not skip any.
 
-### 1. Inspect every changed file
-- For each file in `execution_report.files_changed`: pick the best tool from the catalog, call it, confirm the change matches the task intent.
-- Record `✓` if correct, `✗` with file path and line reference if not.
+### Path A — Normal Run
+1. Inspect every changed file
+   - For each file in `execution_report.files_changed`: pick the best tool from the catalog, call it, confirm the change matches the task intent.
+   - Record `✓` if correct, `✗` with file path and line reference if not.
+2. Read server logs
+   - Call `get_server_logs` (default `lines_count: 25`; increase if the execution report indicates more output).
+   - Classify every line using the Log Triage table in Conditions.
+   - Record only ERROR or CRASH lines in `server_log_errors`. If none → record `"no errors found"`.
+3. Run lint
+   - Call `get_lint_checks`.
+   - Record only error-level violations (not warnings) in `lint_violations` as `"rule: message in file:line"`. If none → record `"no violations found"`.
 
-### 2. Read server logs
-- Call `get_server_logs` (default `lines_count: 25`; increase if the execution report indicates more output).
-- Classify every line using the Log Triage table in Conditions.
-- Record only ERROR or CRASH lines in `server_log_errors`. If none → record `"no errors found"`.
-
-### 3. Run lint
-- Call `get_lint_checks`.
-- Record only error-level violations (not warnings) in `lint_violations` as `"rule: message in file:line"`. If none → record `"no violations found"`.
+### Path B — E2E Failure Run
+1. Read the E2E failed report. Identify which scenarios failed and their `root_cause`.
+2. Inspect only the files implicated by `failure_analysis.affected_files` in the E2E report.
+3. Read server logs — same rules as Path A step 2.
+4. Run lint — same rules as Path A step 3.
+5. Set `failure_analysis.requires_context_regathering` based on whether the fix requires information beyond what the current context report covers.
 
 ---
 
@@ -362,9 +376,120 @@ Field rules:
 - `checks`: always present.
 """
 
+# ------------------------------------
+# E2E TESTING
+# ------------------------------------
+
+E2E_TESTING_PROMPT = """\
+## Role
+You are a Senior E2E Test Architect Agent. Expert in browser automation, user journey modeling, and `agent-browser` CLI.
+Methodical and minimal — never add steps that don't validate a user-facing requirement.
+State assumptions explicitly when inputs are ambiguous.
+
+---
+
+## Inputs
+- `execution_report`: file changes from the code editor
+- `user_task`: description of what the user was building or fixing
+
+---
+
+## Rules
+- Call `get_agent_browser_skill` once at the start — always, before writing any test
+- Call `execute_agent_browser` to run each scenario — one call per scenario, never batch
+- Derive the URL path from changed files (e.g. `src/app/login/page.tsx` → `/login`)
+
+**Scenarios:**
+- Always include: 1 happy path + at least 1 edge/failure case
+- Keep steps minimal — only what directly validates a requirement
+
+---
+
+## Workflow
+1. **Load skill** — call `get_agent_browser_skill`
+2. **Extract journey** — infer user actions from `execution_report` + `user_task`
+3. **State assumptions** — list any ambiguities and how you resolved them
+4. **Write scenarios** — happy path first, then edge cases
+5. **Execute** — run each scenario via `execute_agent_browser`, one at a time
+6. **Report** — return the structured JSON output below
+
+---
+
+## Acceptance Criteria
+
+- [ ] `get_agent_browser_skill` was called before any test was written
+- [ ] Each scenario runs in a separate `execute_agent_browser` call — no batching
+- [ ] No unit tests or implementation-level assertions present
+- [ ] Every step maps to a visible user action or UI state
+- [ ] URL path is derived from changed files — not hardcoded or assumed
+- [ ] At least 1 happy path and 1 edge/failure case are defined
+- [ ] Each step is minimal — removed if it doesn't validate a requirement
+- [ ] All ambiguities are listed and resolved before test writing begins
+- [ ] User journey is explicitly extracted — not inferred silently
+- [ ] Assumptions section is non-empty or states "no ambiguities found"
+- [ ] Happy path written before edge cases
+- [ ] Each scenario executed individually — verified by separate shell calls
+- [ ] Output is valid JSON — no extra text, no markdown wrapper
+
+---
+
+## Output
+Return a single JSON object. Nothing else.
+```json
+{
+  "status": "passed | failed",
+  "summary": "...",
+  "scenarios": [
+    {
+      "name": "...",
+      "type": "happy_path | edge_case",
+      "steps": ["..."],
+      "result": "passed | failed",
+      "detail": "..."
+    }
+  ],
+  "failure_analysis": {
+    "root_cause": "...",
+    "affected_files": ["..."]
+  }
+}
+```
+
+**Field rules:**
+- `failure_analysis` — include only when `status: "failed"`, omit otherwise
+- `scenarios` — always present; minimum 1 `happy_path` + 1 `edge_case`
+"""
+
 # ---------------------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------------------
+
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL)
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def extract_json_content(message: BaseMessage) -> str:
+    content = message.content
+
+    # Normalize multi-part provider responses (e.g. Gemini)
+    if isinstance(content, list):
+        content = next(
+            (block["text"] for block in content if block.get("type") == "text"),
+            "",
+        )
+
+    # Priority 1: extract from markdown fence
+    match = _JSON_FENCE_RE.search(content)
+    if match:
+        return match.group(1).strip()
+
+    # Priority 2: extract raw JSON object
+    match = _JSON_OBJECT_RE.search(content)
+    if match:
+        return match.group(0).strip()
+
+    return content.strip()
 
 
 class BuildSandboxToolsDefinitions:
@@ -675,11 +800,43 @@ class BuildSandboxTools:
             """
             return await instance.get_lint_checks()
 
+        @tool
+        async def execute_agent_browser(command: str) -> dict:
+            """
+            Execute an agent-browser CLI command inside the sandbox.
+            Only accepts commands that start with 'agent-browser'.
+
+            Args:
+                command: A full agent-browser CLI command string.
+
+            Returns:
+                dict with 'stdout', 'stderr', and 'exit_code'.
+            """
+            stripped = command.strip()
+            if not stripped.startswith("agent-browser"):
+                return {
+                    "stdout": "",
+                    "stderr": f"Rejected: command must start with 'agent-browser', got: '{stripped[:60]}'",
+                    "exit_code": 1,
+                }
+            try:
+                result = await instance.execute_shell_command(
+                    stripped, cwd=PROJECT_PATH
+                )
+                return {
+                    "stdout": getattr(result, "stdout", ""),
+                    "stderr": getattr(result, "stderr", ""),
+                    "exit_code": getattr(result, "exit_code", 1),
+                }
+            except Exception as e:
+                return instance._shell_error("execute_agent_browser failed", e)
+
         return {
             "execute_tool": execute_tool,
             "manage_npm_package": manage_npm_package,
             "get_server_logs": get_server_logs,
             "get_lint_checks": get_lint_checks,
+            "execute_agent_browser": execute_agent_browser,
         }
 
 
@@ -727,6 +884,7 @@ class AgentState(MessagesState):
     retry_count: int = 0
     verification_report: Optional[str] = None
     context_report: Optional[str] = None
+    e2e_testing_report: Optional[str] = None
     user_message: Optional[HumanMessage] = None
     executor_messages: List[str] = []
 
@@ -902,18 +1060,20 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
     user_message = state.get("user_message")
     context_report = state.get("context_report")
     retry_count = state.get("retry_count")
-    messages = state.get("messages", [])
-    execution_report = next(
-        (m for m in reversed(messages) if isinstance(m, AIMessage)),
-        None,
-    )
-    messages_input = [
-        HumanMessage(
-            f"User Task: {user_message.content}\n"
-            f"Context Report: {context_report}\n"
-            f"Execution Report: {execution_report.content if execution_report else ''}"
-        )
-    ]
+    executor_messages = state.get("executor_messages")
+    e2e_testing_report = state.get("e2e_testing_report")
+    if e2e_testing_report:
+        messages_input = [
+            HumanMessage(f"E2E testing failed report: {e2e_testing_report}")
+        ]
+    else:
+        messages_input = [
+            HumanMessage(
+                f"User Task: {user_message.content}\n"
+                f"Context Report: {context_report}\n"
+                f"Execution Report: {executor_messages[-1]}"
+            )
+        ]
 
     result = await _run_subagent(
         system_prompt=system_prompt,
@@ -928,21 +1088,31 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
         messages=messages_input,
     )
 
-    raw = result["messages"][-1].content
+    raw = extract_json_content(result["messages"][-1])
     report = json.loads(raw)
 
-    verification_report = None
-    next_node = END
     MAX_RETRIES = 3
-    if report.get("status") == "failed" and retry_count < MAX_RETRIES:
-        retry_count = retry_count + 1
+    verification_report = None
+    next_node = "e2e_testing"
+
+    status_failed = report.get("status") == "failed"
+    exhausted_retries = retry_count >= MAX_RETRIES
+
+    if status_failed and not exhausted_retries:
+        retry_count += 1
         verification_report = raw
-        next_node = "executor"
-        failure_analysis = report.get("failure_analysis") or {}
-        if failure_analysis.get("requires_context_regathering"):
-            next_node = "context_gatherer"
-    else:
-        retry_count = 0
+        requires_regathering = (report.get("failure_analysis") or {}).get(
+            "requires_context_regathering"
+        )
+        next_node = "context_gatherer" if requires_regathering else "executor"
+    elif exhausted_retries:
+        return Command(
+            update={
+                "retry_count": 0,
+                "messages": result["messages"],
+            },
+            goto=END,
+        )
 
     return Command(
         update={
@@ -951,6 +1121,50 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
             "retry_count": retry_count,
         },
         goto=next_node,
+    )
+
+
+async def e2e_testing_node(state: AgentState, config: RunnableConfig) -> Command:
+    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
+    lc_tools = sandbox_builder.as_langchain_tools()
+
+    user_message = state.get("user_message")
+
+    executor_messages = state.get("executor_messages")
+
+    messages_input = [
+        HumanMessage(
+            f"User Task: {user_message.content}\n"
+            f"Execution Report: {executor_messages[-1]}"
+        )
+    ]
+
+    result = await _run_subagent(
+        system_prompt=E2E_TESTING_PROMPT,
+        tools=[
+            get_agent_browser_skill,
+            lc_tools["execute_agent_browser"],
+        ],
+        state=state,
+        agent_name="e2e_testing",
+        messages=messages_input,
+    )
+
+    raw = extract_json_content(result["messages"][-1])
+    report = json.loads(raw)
+
+    if report.get("status") == "failed":
+        return Command(
+            update={
+                "messages": result["messages"],
+                "e2e_testing_report": raw,
+            },
+            goto="verification",
+        )
+
+    return Command(
+        update={"messages": result["messages"]},
+        goto=END,
     )
 
 
@@ -963,24 +1177,10 @@ coding_workflow = StateGraph(AgentState)
 coding_workflow.add_node("context_gatherer", context_gatherer_node)
 coding_workflow.add_node("executor", executor_node)
 coding_workflow.add_node("verification", verification_node)
+coding_workflow.add_node("e2e_testing", e2e_testing_node)
 
 
 coding_workflow.add_edge(START, "context_gatherer")
 coding_workflow.add_edge("context_gatherer", "executor")
 coding_workflow.add_edge("executor", "verification")
 coding_graph = coding_workflow.compile(checkpointer=InMemorySaver())
-
-if __name__ == "__main__":
-    import asyncio
-
-    read_definitions = BuildSandboxToolsDefinitions(allowed_tools=READ_ONLY_TOOLS)
-    sandbox_builder = BuildSandboxTools(
-        "i3u17p0kvx2s4cns0c8lc", tools_definitions=read_definitions
-    )
-
-    result = asyncio.run(
-        sandbox_builder.execute_tool(
-            tool_name="list_dir", tool_params={"relative_path": "src"}
-        )
-    )
-    print(result)
