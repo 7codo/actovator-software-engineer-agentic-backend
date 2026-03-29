@@ -1,14 +1,3 @@
----
-name: agent-browser-testing
-description: Use this skill whenever the user wants to write, run, or debug browser-based tests using agent-browser.
-  Triggers on: "test this page", "automate browser", "write a test", "check if X works", "click and verify",
-  "fill out form", "screenshot comparison", "end-to-end test", "E2E test", "browser automation",
-  "test my UI", "test my website", "test my web app", "verify the flow", "simulate a user", or
-  any request to interact with a web page programmatically. Always use this skill when agent-browser
-  commands are involved — even for simple single-step tasks like "take a screenshot" or "click that button".
-compatibility:
-  requires: agent-browser CLI (agent-browser --version to verify)
----
 
 # Agent-Browser Testing Skill
 
@@ -30,7 +19,7 @@ Every test follows this loop:
 
 ### 1. Basic navigation + assertion
 ```bash
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 agent-browser snapshot -i                          # -i = interactive elements only
 agent-browser get title                            # assert page title
 agent-browser wait --text "Expected Heading"       # assert visible text
@@ -38,7 +27,7 @@ agent-browser wait --text "Expected Heading"       # assert visible text
 
 ### 2. Fill a form and submit
 ```bash
-agent-browser open https://app.example.com/login
+agent-browser open http://localhotst:3000/login
 agent-browser snapshot -i
 agent-browser fill @e3 "user@example.com"          # email field
 agent-browser fill @e4 "s3cr3t"                    # password field
@@ -49,7 +38,7 @@ agent-browser wait --text "Welcome"                # assert content
 
 ### 3. Semantic locators (no snapshot needed)
 ```bash
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 agent-browser find role button click --name "Sign In"
 agent-browser find label "Email" fill "user@test.com"
 agent-browser find placeholder "Password" fill "pass"
@@ -64,43 +53,34 @@ Use semantic locators when element labels are stable and predictable. Use `@ref`
 
 ### Inline bash script (simple flows)
 ```bash
-#!/usr/bin/env bash
-set -e
-
-BASE="https://staging.example.com"
-
-echo "=== Test: Login flow ==="
 agent-browser open "$BASE/login"
 agent-browser find label "Email"    fill "qa@example.com"
 agent-browser find label "Password" fill "password123"
 agent-browser find role button click --name "Log in"
 agent-browser wait --url "**/home"
 agent-browser wait --text "Welcome, QA"
-echo "PASS: Login flow"
 
-echo "=== Test: Logout ==="
 agent-browser find role button click --name "Account menu"
 agent-browser find text "Sign out" click
 agent-browser wait --url "**/login"
-echo "PASS: Logout"
 ```
 
 ### Session isolation (parallel/independent tests)
 ```bash
 # Each test gets a clean browser session — no cookie bleed
-agent-browser --session test-login  open https://example.com/login
+agent-browser --session test-login  open http://localhotst:3000/login
 agent-browser --session test-login  find label "Email" fill "a@b.com"
 agent-browser --session test-login  find text "Submit" click
 
-agent-browser --session test-signup open https://example.com/signup
+agent-browser --session test-signup open http://localhotst:3000/signup
 agent-browser --session test-signup find label "Name" fill "Alice"
 ```
 
 ### Full-page screenshot regression
 ```bash
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 agent-browser wait --load networkidle
-agent-browser screenshot --full /mnt/user-data/outputs/homepage-$(date +%s).png
+agent-browser screenshot --full /tmp/agent-browser-data/homepage-$(date +%s).png
 ```
 
 ---
@@ -146,8 +126,6 @@ agent-browser get count ".product-card"             # number of elements
 agent-browser get attr @e6 href                     # read href attribute
 ```
 
-Exit code `0` = pass, non-zero = fail — composable with `set -e` in bash scripts.
-
 ---
 
 ## Authentication & State
@@ -155,22 +133,22 @@ Exit code `0` = pass, non-zero = fail — composable with `set -e` in bash scrip
 ### Save and reuse login state
 ```bash
 # One-time login
-agent-browser open https://app.example.com/login
+agent-browser open http://localhotst:3000/login
 agent-browser find label "Email"    fill "admin@example.com"
 agent-browser find label "Password" fill "adminpass"
 agent-browser find text "Log in" click
 agent-browser wait --url "**/dashboard"
-agent-browser state save /home/claude/auth-admin.json
+agent-browser state save .actovator/auth-admin.json
 
 # All subsequent tests — skip login entirely
-agent-browser state load /home/claude/auth-admin.json
-agent-browser open https://app.example.com/protected-page
+agent-browser state load .actovator/auth-admin.json
+agent-browser open http://localhotst:3000/protected-page
 agent-browser wait --text "Protected Content"
 ```
 
 ### Set a cookie directly
 ```bash
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 agent-browser cookies set "session_token" "abc123"
 agent-browser reload
 ```
@@ -183,12 +161,12 @@ agent-browser reload
 # Block analytics/tracking to speed up tests
 agent-browser network route "**analytics**" --abort
 agent-browser network route "**hotjar**"    --abort
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 
 # Mock an API response
-agent-browser network route "https://api.example.com/user" \
+agent-browser network route "http://localhost:3000/api/user" \
   --body '{"id":1,"name":"Test User","role":"admin"}'
-agent-browser open https://app.example.com/profile
+agent-browser open http://localhotst:3000/profile
 agent-browser wait --text "Test User"
 
 # Inspect what was requested
@@ -222,7 +200,7 @@ agent-browser frame main                    # return to main page
 ### Debug a failing test
 ```bash
 # 1. Run the browser
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 
 # 2. Highlight the element you're targeting
 agent-browser highlight @e5
@@ -231,7 +209,7 @@ agent-browser highlight @e5
 agent-browser errors
 
 # 4. Take a screenshot at the point of failure
-agent-browser screenshot /mnt/user-data/outputs/failure-$(date +%s).png
+agent-browser screenshot /tmp/agent-browser-data/failure-$(date +%s).png
 
 # 5. Dump the full accessibility tree around the problem area
 agent-browser snapshot -s "#main-content"
@@ -244,16 +222,16 @@ agent-browser snapshot -s "#main-content"
 ```bash
 # Mobile viewport
 agent-browser set device "iPhone 14"
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 agent-browser snapshot -i
 
 # Desktop with custom size
 agent-browser set viewport 1440 900
-agent-browser open https://example.com
+agent-browser open http://localhotst:3000
 
 # Dark mode
 agent-browser set media dark
-agent-browser screenshot --full /mnt/user-data/outputs/dark-mode.png
+agent-browser screenshot --full /mnt/agent-browser-data/dark-mode.png
 ```
 
 ---
@@ -261,34 +239,24 @@ agent-browser screenshot --full /mnt/user-data/outputs/dark-mode.png
 ## PDF Generation
 
 ```bash
-agent-browser open https://example.com/invoice/123
+agent-browser open http://localhotst:3000/invoice/123
 agent-browser wait --load networkidle
-agent-browser pdf /mnt/user-data/outputs/invoice-123.pdf
+agent-browser pdf /mnt/agent-browser-data/invoice-123.pdf
 ```
 
 ---
 
 ## Scripting Best Practices
-
-1. **Always `set -e`** in bash test scripts so failures stop the run immediately.
-2. **Use `--session`** flags to isolate independent tests from each other.
-3. **Prefer `wait --url` / `wait --text`** over `wait <ms>` to avoid timing flakiness.
-4. **Save auth state** once and reuse with `state load` to avoid slow repeated logins.
-5. **Block noisy third-party scripts** with `network route … --abort` for faster, more deterministic tests.
-6. **Output screenshots to `/mnt/user-data/outputs/`** so users can download them.
-7. **Never hardcode `@refs`** — always snapshot the current page to get fresh refs.
-8. **Use `--json` flag** when you need to parse output programmatically:
+- **Use `--session`** flags to isolate independent tests from each other.
+- **Prefer `wait --url` / `wait --text`** over `wait <ms>` to avoid timing flakiness.
+- **Save auth state** once and reuse with `state load` to avoid slow repeated logins.
+- **Block noisy third-party scripts** with `network route … --abort` for faster, more deterministic tests.
+- **Output screenshots to `/mnt/agent-browser-data/`** so users can download them.
+- **Never hardcode `@refs`** — always snapshot the current page to get fresh refs.
+- **Use `--json` flag** when you need to parse output programmatically:
    ```bash
    URL=$(agent-browser --json get url | jq -r '.value')
    ```
-
----
-
-## Reference
-
-For the full command surface (network routing, JS eval, mouse control, tracing, CDP, environment variables, etc.) see the bundled reference:
-
-📄 `references/commands.md`
 
 ---
 

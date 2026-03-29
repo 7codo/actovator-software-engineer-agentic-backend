@@ -388,6 +388,11 @@ State assumptions explicitly when inputs are ambiguous.
 
 ---
 
+## Context
+The web app at http://localhost:3000 is already open via agent-browser. It will close when you complete testing. Do not reopen it; use browser tabs if you need more pages.
+
+---
+
 ## Inputs
 - `execution_report`: file changes from the code editor
 - `user_task`: description of what the user was building or fixing
@@ -745,6 +750,34 @@ class BuildSandboxTools:
         except Exception as e:
             return self._shell_error(f"Failed to {action} npm package '{package}'", e)
 
+    async def execute_agent_browser(self, command: str) -> dict:
+        """
+        Execute an agent-browser CLI command inside the sandbox.
+        Only accepts commands that start with 'agent-browser'.
+
+        Args:
+            command: A full agent-browser CLI command string.
+
+        Returns:
+            dict with 'stdout', 'stderr', and 'exit_code'.
+        """
+        stripped = command.strip()
+        if not stripped.startswith("agent-browser"):
+            return {
+                "stdout": "",
+                "stderr": f"Rejected: command must start with 'agent-browser', got: '{stripped[:60]}'",
+                "exit_code": 1,
+            }
+        try:
+            result = await self.execute_shell_command(stripped, cwd=PROJECT_PATH)
+            return {
+                "stdout": getattr(result, "stdout", ""),
+                "stderr": getattr(result, "stderr", ""),
+                "exit_code": getattr(result, "exit_code", 1),
+            }
+        except Exception as e:
+            return self._shell_error("execute_agent_browser failed", e)
+
     def as_langchain_tools(self) -> dict:
         instance = self
 
@@ -812,24 +845,7 @@ class BuildSandboxTools:
             Returns:
                 dict with 'stdout', 'stderr', and 'exit_code'.
             """
-            stripped = command.strip()
-            if not stripped.startswith("agent-browser"):
-                return {
-                    "stdout": "",
-                    "stderr": f"Rejected: command must start with 'agent-browser', got: '{stripped[:60]}'",
-                    "exit_code": 1,
-                }
-            try:
-                result = await instance.execute_shell_command(
-                    stripped, cwd=PROJECT_PATH
-                )
-                return {
-                    "stdout": getattr(result, "stdout", ""),
-                    "stderr": getattr(result, "stderr", ""),
-                    "exit_code": getattr(result, "exit_code", 1),
-                }
-            except Exception as e:
-                return instance._shell_error("execute_agent_browser failed", e)
+            return await instance.execute_agent_browser(command=command)
 
         return {
             "execute_tool": execute_tool,
@@ -1138,7 +1154,9 @@ async def e2e_testing_node(state: AgentState, config: RunnableConfig) -> Command
             f"Execution Report: {executor_messages[-1]}"
         )
     ]
-
+    await sandbox_builder.execute_agent_browser(
+        "agent-browser open http://localhost:3000"
+    )
     result = await _run_subagent(
         system_prompt=E2E_TESTING_PROMPT,
         tools=[
@@ -1149,6 +1167,7 @@ async def e2e_testing_node(state: AgentState, config: RunnableConfig) -> Command
         agent_name="e2e_testing",
         messages=messages_input,
     )
+    await sandbox_builder.execute_agent_browser("agent-browser close")
 
     raw = extract_json_content(result["messages"][-1])
     report = json.loads(raw)

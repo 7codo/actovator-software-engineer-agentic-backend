@@ -52,12 +52,9 @@ npm install
 npm run dev
 \`\`\`
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+---
 
-## Tech stack
+**Author:** [@actovator](https://actovator.com)
 
-- [Next.js](https://nextjs.org/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [TypeScript](https://www.typescriptlang.org/)
 EOF
 echo "✓ Cleaned README.md"

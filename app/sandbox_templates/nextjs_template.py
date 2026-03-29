@@ -18,6 +18,13 @@ def install_python_313_cmd():
     )
 
 
+def install_nodejs_cmd():
+    return (
+        "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && "
+        "apt-get install -y nodejs"
+    )
+
+
 def install_github_cli_cmd():
     return (
         "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && "
@@ -45,23 +52,38 @@ def install_lightpanda_and_agent_browser_cmds():
 def init_actovator_cmd():
     return (
         "mkdir -p .actovator && "
-        'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > .actovator/config.json'
+        'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > .actovator/config.json && '
+        "echo '{\n"
+        '  "ecosystem": {\n'
+        '    "description": "A Next.js / TypeScript project with app directory, Tailwind CSS, shadcn/ui.",\n'
+        '    "datasets": [\n'
+        '      "src/app",\n'
+        '      "public",\n'
+        '      "package.json",\n'
+        '      "tailwind.config.js",\n'
+        '      "next.config.js",\n'
+        '      "README.md",\n'
+        '      ".actovator"\n'
+        "    ]\n"
+        "  }\n"
+        "}' > .actovator/memory.json"
     )
 
 
 def create_test_directories_cmd():
-    return "mkdir -p .actovator/bashs .actovator/tests/e2e .actovator/tests/e2e/screenshots .actovator/features"
+    return "mkdir -p /tmp/agent-browser-data .actovator/features"
 
 
 def set_shadcn_init_cmds():
     return ["npx shadcn@latest init -d", "npx shadcn@latest add button"]
 
 
-# def run_init_next_script_cmd():
-#     return [
-#         "chmod +x .actovator/init-next.sh && .actovator/init-next.sh",
-#         "rm .actovator/init-next.sh",
-#     ]
+def run_init_next_script_cmd():
+    return [
+        "sed -i 's/\\r//' .actovator/init-next.sh",
+        "chmod +x .actovator/init-next.sh && .actovator/init-next.sh",
+        "rm .actovator/init-next.sh",
+    ]
 
 
 def write_tech_stack_json_cmd():
@@ -80,9 +102,10 @@ def clone_serena_repo_cmd():
 
 template = (
     Template()
-    .from_template("mcp-gateway")
+    .from_ubuntu_image("22.04")
     .set_workdir("/home/user")
     .run_cmd(install_python_313_cmd(), user="root")
+    .run_cmd(install_nodejs_cmd(), user="root")
     .run_cmd(install_github_cli_cmd(), user="root")
     .run_cmd(install_global_tools_cmds(), user="root")
     .run_cmd(install_lightpanda_and_agent_browser_cmds(), user="root")
@@ -96,8 +119,8 @@ template = (
     .run_cmd(init_actovator_cmd())
     .run_cmd(create_test_directories_cmd())
     .run_cmd(set_shadcn_init_cmds())
-    # .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
-    # .run_cmd(run_init_next_script_cmd())
+    .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
+    .run_cmd(run_init_next_script_cmd())
     .run_cmd(write_tech_stack_json_cmd())
     .set_start_cmd(
         f'pm2 start npm --name "project" -- run dev ; '
