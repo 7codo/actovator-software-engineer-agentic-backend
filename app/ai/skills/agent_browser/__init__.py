@@ -6,7 +6,7 @@ AGENT_BROWSER_SKILL: str = read_file_from_init(
 )
 
 AGENT_BROWSER_COMMANDS_REF: str = read_file_from_init(
-    "agent_browser/references/commands.md", "app.ai.skills.agent_browser"
+    "references/commands.md", "app.ai.skills.agent_browser"
 )
 
 __all__ = [
