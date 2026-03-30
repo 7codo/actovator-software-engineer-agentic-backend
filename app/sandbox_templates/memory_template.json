@@ -1,0 +1,42 @@
+{
+    "project_ecosystem": {
+        "description": "Core stack identity of the project",
+        "data": [
+            {
+                "framework": "Next.js",
+                "language": "TypeScript",
+                "router": "App Directory",
+                "root": "src/",
+                "styling": "Tailwind CSS",
+                "ui_library": "shadcn/ui"
+            }
+        ]
+    },
+    "project_structure": {
+        "description": "Key directories, entry points, and file location conventions",
+        "data": [
+            {
+                "path": "src/app",
+                "role": "App router pages and layouts"
+            },
+            {
+                "path": "src/components",
+                "role": "Shared UI components"
+            },
+            {
+                "path": "src/lib",
+                "role": "Utilities and helpers"
+            }
+        ]
+    },
+    "coding_conventions": {
+        "description": "Naming rules, file patterns, and formatting preferences",
+        "data": [
+            {
+                "components": "PascalCase",
+                "files": "kebab-case",
+                "hooks_prefix": "use"
+            }
+        ]
+    }
+}

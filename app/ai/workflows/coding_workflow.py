@@ -52,6 +52,12 @@ For every file entry:
 
 ---
 
+## Project Context
+- **Project Ecosystem:** {project_ecosystem}
+- **Project Structure:** {project_structure}
+
+---
+
 ## Inputs
 Processing depends on the input path:
 
@@ -158,6 +164,12 @@ You are the Executor. Based on the context from the context_gatherer agent, impl
 - Always call `get_tool_parameters` before each `execute_tool` call.
 - Never install packages after writing code that uses them — packages always come first.
 - If context is missing → set `status: "needs_context"` immediately. Do not guess or partially proceed.
+
+---
+
+## Project Context
+- **Project Ecosystem:** {project_ecosystem}
+- **Coding Conventions:** {coding_conventions}
 
 ---
 
@@ -385,11 +397,7 @@ E2E_TESTING_PROMPT = """\
 You are a Senior E2E Test Architect Agent. Expert in browser automation, user journey modeling, and `agent-browser` CLI.
 Methodical and minimal — never add steps that don't validate a user-facing requirement.
 State assumptions explicitly when inputs are ambiguous.
-
----
-
-## Context
-The web app at http://localhost:3000 is already open via agent-browser. It will close when you complete testing. Do not reopen it; use browser tabs if you need more pages.
+The application under test is a Next.js project with App Router architecture.
 
 ---
 
@@ -403,6 +411,7 @@ The web app at http://localhost:3000 is already open via agent-browser. It will 
 - Call `get_agent_browser_skill` once at the start — always, before writing any test
 - Call `execute_agent_browser` to run each scenario — one call per scenario, never batch
 - Derive the URL path from changed files (e.g. `src/app/login/page.tsx` → `/login`)
+- If you attempt to derive the correct URL path and do not succeed after a maximum of 3 tries, return a failed report and stop further attempts
 
 **Scenarios:**
 - Always include: 1 happy path + at least 1 edge/failure case
@@ -427,6 +436,7 @@ The web app at http://localhost:3000 is already open via agent-browser. It will 
 - [ ] No unit tests or implementation-level assertions present
 - [ ] Every step maps to a visible user action or UI state
 - [ ] URL path is derived from changed files — not hardcoded or assumed
+- [ ] If correct URL path cannot be derived after at most 3 attempts, a failed report is returned and no further attempts are made
 - [ ] At least 1 happy path and 1 edge/failure case are defined
 - [ ] Each step is minimal — removed if it doesn't validate a requirement
 - [ ] All ambiguities are listed and resolved before test writing begins
@@ -455,14 +465,129 @@ Return a single JSON object. Nothing else.
   ],
   "failure_analysis": {
     "root_cause": "...",
-    "affected_files": ["..."]
+    "affected_paths": ["..."],
+    "url_path_resolution_attempts": [
+      "Attempt 1: ...",
+      "Attempt 2: ...",
+      "Attempt 3: ..."
+    ]
   }
 }
 ```
 
 **Field rules:**
-- `failure_analysis` — include only when `status: "failed"`, omit otherwise
+- `failure_analysis` — include only when `status: "failed"`, omit otherwise.
+    - If status is `"failed"` specifically due to inability to derive the correct URL path after 3 tries, the `failure_analysis` should explain the attempts under `url_path_resolution_attempts`.
 - `scenarios` — always present; minimum 1 `happy_path` + 1 `edge_case`
+"""
+
+# ADD after E2E_TESTING_PROMPT
+GIT_AGENT_PROMPT = """\
+## Role
+You are the Memory & Commit Agent. You run after all code changes have been verified and tested.
+Your responsibilities:
+1. Update `.actovator/memory.json` with durable learnings from the completed task.
+2. Commit and push all changes to the remote repository.
+
+---
+
+## Rules
+- Before invoking any `execute_tool` action, you must first call `get_tool_parameters` to retrieve its parameters. This step is not required for the `commit_changes` tool.
+- Only read and write `.actovator/memory.json` — never investigate or modify any other file.
+- Never delete existing memory entries — only append or update.
+- Never change root-level keys — only modify their `data` arrays or `description` values.
+- Only update keys where the task produced new, factual, durable information.
+- Keep entries concise and factual — no opinions or speculation.
+- Prefer symbolic tools (`get_symbols_overview`, `find_symbol`, `replace_symbol_body`, `insert_after_symbol`, `insert_before_symbol`) over `replace_content`. Use `replace_content` only when symbolic tools cannot perform the edit.
+- Commit message must be a single imperative sentence, max 72 characters.
+
+---
+
+## Supported Memory Keys
+| Key | What to store |
+|---|---|
+| `project_ecosystem` | Framework, language, router, root, styling, ui_library |
+| `project_structure` | New directories, entry points, file location conventions |
+| `architecture_decisions` | Design choices, trade-offs, rejected alternatives |
+| `coding_conventions` | Naming rules, file patterns, formatting preferences |
+| `user_requests` | This task appended as a completed entry with auto-incremented id |
+| `user_preferences` | Preferred patterns, libraries, avoided approaches |
+
+---
+
+## Memory Schema Reference
+```json
+{{
+  "project_ecosystem": {{
+    "description": "Core stack identity of the project",
+    "data": [{{ "framework": "...", "language": "...", "router": "...", "root": "...", "styling": "...", "ui_library": "..." }}]
+  }},
+  "project_structure": {{
+    "description": "Key directories, entry points, and file location conventions",
+    "data": [{{ "path": "...", "role": "..." }}]
+  }},
+  "architecture_decisions": {{
+    "description": "Key design choices, trade-offs, and rejected alternatives",
+    "data": [{{ "decision": "...", "reason": "..." }}]
+  }},
+  "coding_conventions": {{
+    "description": "Naming rules, file patterns, and formatting preferences",
+    "data": []
+  }},
+  "user_requests": {{
+    "description": "Tasks and instructions history with status",
+    "data": [{{ "id": 1, "request": "...", "status": "done" }}]
+  }},
+  "user_preferences": {{
+    "description": "Preferred patterns, libraries, and rejected approaches",
+    "data": [{{ "prefer": "...", "avoid": "..." }}]
+  }}
+}}
+```
+
+---
+
+## Inputs
+- `user_task`: the original user request
+- `execution_report`: JSON summary of files changed, packages installed, and symbols modified
+- **Tool catalog**
+```json
+{{api_tools_catalog}}
+```
+
+---
+
+## Workflow
+1. Inspect `.actovator/memory.json` — use `get_symbols_overview` first, then `find_symbol` for specific bodies.
+2. Identify which keys the task affects.
+3. Merge new information, preserving all unrelated keys exactly as-is.
+4. Append this task to `user_requests.data` with the next sequential `id` and `"status": "done"`.
+5. Apply updates using symbolic tools; fall back to `replace_content` only when necessary.
+6. Call `commit_changes` with a concise imperative commit message.
+
+---
+
+### Acceptance Criteria
+- [ ] Every `execute_tool` call is preceded by a `get_tool_parameters` call for the same tool (except `commit_changes`).
+- [ ] No file other than `.actovator/memory.json` is read from or written to during execution.
+- [ ] The final state of `memory.json` contains all pre-existing entries — none removed.
+- [ ] All root-level keys present before the task remain present and unchanged in name after the task.
+- [ ] Only keys directly relevant to the completed task have modified `data` arrays or `description` values.
+- [ ] No entry in any `data` array contains subjective language, opinions, or speculative content.
+- [ ] Symbolic tools are used for all edits where applicable; `replace_content` used only when no symbolic tool could perform the same edit.
+- [ ] The commit message is a single imperative sentence of 72 characters or fewer.
+- [ ] `get_symbols_overview` is called on `memory.json` before any write operation is attempted.
+- [ ] `find_symbol` is used to inspect any specific key body before it is modified.
+- [ ] A new entry is appended to `user_requests.data` with an `id` one greater than the current maximum and `"status": "done"`.
+- [ ] `commit_changes` is the final tool call and is invoked exactly once.
+
+---
+
+Respond in plain text. Summarize:
+- Which memory keys were updated and what was added
+- The commit message used
+- Any issues encountered
+```
 """
 
 # ---------------------------------------------------------------------------
@@ -657,6 +782,14 @@ class BuildSandboxTools:
             return {"url": f"https://{host}", "port": port}
         except Exception as e:
             return {"url": None, "port": port, "error": f"[{type(e).__name__}] {e}"}
+
+    async def read_memory(self, path: str = ".actovator/memory.json") -> dict:
+        try:
+            sandbox = await self._get_sandbox()
+            raw = await sandbox.files.read(path)
+            return json.loads(raw)
+        except Exception:
+            return {}
 
     async def get_server_logs(self, lines_count: int = 25) -> str:
         try:
@@ -856,6 +989,183 @@ class BuildSandboxTools:
         }
 
 
+class BuildGitTools:
+    """
+    Builds and exposes git tools in E2B AsyncSandbox.
+    """
+
+    def __init__(
+        self,
+        sdbx_id: str,
+    ) -> None:
+        self.sdbx_id = sdbx_id
+        self._sandbox: Optional[AsyncSandbox] = None
+
+    async def _get_sandbox(self) -> AsyncSandbox:
+        if self._sandbox is None:
+            self._sandbox = await AsyncSandbox.connect(
+                sandbox_id=self.sdbx_id, api_key=settings.e2b_api_key
+            )
+        return self._sandbox
+
+    def _shell_error(self, context: str, exc: Exception) -> dict:
+        return {
+            "script_path": None,
+            "stdout": "",
+            "stderr": f"[{type(exc).__name__}] {context}: {exc}",
+            "exit_code": 1,
+        }
+
+    async def execute_shell_command(
+        self,
+        command: str,
+        user: str = "user",
+        cwd: str | None = None,
+        background: bool = False,
+    ):
+        try:
+            sandbox = await self._get_sandbox()
+            return await sandbox.commands.run(
+                command, user=user, cwd=cwd, background=background
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"execute_shell_command failed.\nCommand: {command}\nReason: {type(e).__name__}: {e}"
+            ) from e
+
+    async def ensure_git_remote_origin(
+        self, remote_url: Optional[str] = None, repo_name: Optional[str] = None
+    ) -> dict:
+
+        res = await self.execute_shell_command(
+            "git rev-parse --is-inside-work-tree", cwd=PROJECT_PATH
+        )
+        if res.exit_code != 0 or res.stdout.strip() != "true":
+            init_res = await self.execute_shell_command("git init", cwd=PROJECT_PATH)
+            if init_res.exit_code != 0:
+                return self._shell_error(
+                    "error-initialising-repo",
+                    Exception(
+                        init_res.stderr or "Unknown error initialising git repository."
+                    ),
+                )
+
+        # 2. Return early if an origin remote already exists.
+        async def _get_origin_url():
+            try:
+                origin_res = await self.execute_shell_command(
+                    "git remote get-url origin", cwd=PROJECT_PATH
+                )
+                if origin_res.exit_code == 0:
+                    return origin_res.stdout.strip()
+            except Exception:
+                pass
+            return None
+
+        existing = await _get_origin_url()
+        if existing is not None:
+            return {
+                "status": "already-exists",
+                "remote_url": existing,
+                "created_repo": None,
+                "error": "",
+            }
+
+        # 3. Add a caller-supplied remote URL.
+        if remote_url:
+            res = await self.execute_shell_command(
+                f"git remote add origin {remote_url}", cwd=PROJECT_PATH
+            )
+            if res.exit_code != 0:
+                return self._shell_error(
+                    "error-adding-remote-url",
+                    Exception(res.stderr or "Unknown error adding remote URL."),
+                )
+            return {
+                "status": "set-remote-url-supplied",
+                "remote_url": remote_url,
+                "created_repo": None,
+                "error": "",
+            }
+
+        # 4. Create a new GitHub repo with the CLI.
+        # Resolve repo_name: if absent or blank, derive it from the sandbox directory.
+        name = None
+        if repo_name:
+            name = repo_name.strip() if isinstance(repo_name, str) else ""
+
+        if not name:
+            # Append a short uuid4 to ensure uniqueness
+
+            basename_res = await self.execute_shell_command(
+                "basename $(pwd)", cwd=PROJECT_PATH
+            )
+            base_name = (
+                basename_res.stdout.strip() if basename_res.exit_code == 0 else ""
+            )
+            name = f"{base_name}-actovator-{self.sdbx_id}" if base_name else ""
+        if not name:
+            return self._shell_error(
+                "error-creating-remote-url",
+                Exception(
+                    "Could not determine a repository name: provide repo_name or ensure PROJECT_PATH is a named directory."
+                ),
+            )
+        res = await self.execute_shell_command(
+            f"gh repo create {name} --private --source=. --remote=origin",
+            cwd=PROJECT_PATH,
+        )
+        origin_url = await _get_origin_url()
+        if res.exit_code == 0 and origin_url:
+            return {
+                "status": "created-remote-url",
+                "remote_url": origin_url,
+                "created_repo": name,
+                "error": "",
+            }
+        return self._shell_error(
+            "error-creating-remote-url",
+            Exception(res.stderr or "Unknown error creating remote URL via gh CLI."),
+        )
+
+    async def commit_changes(self, message: str) -> dict:
+        try:
+            await self.execute_shell_command("git add -A", cwd=PROJECT_PATH)
+            result = await self.execute_shell_command(
+                f'git commit -m "{message}"', cwd=PROJECT_PATH
+            )
+            if result.exit_code != 0:
+                return {"ok": False, "stdout": result.stdout, "stderr": result.stderr}
+            push = await self.execute_shell_command(
+                "git push origin HEAD", cwd=PROJECT_PATH
+            )
+            return {
+                "ok": push.exit_code == 0,
+                "stdout": push.stdout,
+                "stderr": push.stderr,
+            }
+        except Exception as e:
+            return self._shell_error("commit_changes failed", e)
+
+    def as_langchain_tools(self) -> dict:
+        instance = self
+
+        @tool
+        async def commit_changes(message: str) -> dict:
+            """
+            Stage all changes, commit with the given message, and push to origin HEAD.
+
+            Args:
+                message: Imperative commit message, max 72 characters.
+
+            Returns:
+                dict with 'ok', 'stdout', and 'stderr'.
+            """
+            return await instance.commit_changes(message)
+
+        return {"commit_changes": commit_changes}
+
+
 # ---------------------------------------------------------------------------
 # TOOL SETS
 # ---------------------------------------------------------------------------
@@ -882,6 +1192,15 @@ WRITE_TOOLS = [
     "rename_symbol",
 ]
 
+GIT_TOOLS = [
+    "get_symbols_overview",
+    "find_symbol",
+    "replace_symbol_body",
+    "insert_after_symbol",
+    "insert_before_symbol",
+    "replace_content",
+    "rename_symbol",
+]
 
 # ---------------------------------------------------------------------------
 # STRUCTURED OUTPUT SCHEMA
@@ -956,10 +1275,15 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
     sandbox_builder = BuildSandboxTools(
         state["sandbox_id"], tools_definitions=read_definitions
     )
+    memory = await sandbox_builder.read_memory()
+    project_ecosystem = json.dumps(memory.get("project_ecosystem", {}), indent=2)
+    project_structure = json.dumps(memory.get("project_structure", {}), indent=2)
     lc_tools = sandbox_builder.as_langchain_tools()
 
     system_prompt = PromptTemplate.from_template(CONTEXT_GATHERER_PROMPT).format(
-        api_tools_catalog=read_definitions.get_sandbox_tools_without_params()
+        api_tools_catalog=read_definitions.get_sandbox_tools_without_params(),
+        project_ecosystem=project_ecosystem,
+        project_structure=project_structure,
     )
     messages = state.get("messages")
     verification_report = state.get("verification_report")
@@ -1017,9 +1341,14 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
         state["sandbox_id"], tools_definitions=write_definitions
     )
     lc_tools = sandbox_builder.as_langchain_tools()
+    memory = await sandbox_builder.read_memory()
+    project_ecosystem = json.dumps(memory.get("project_ecosystem", {}), indent=2)
+    coding_conventions = json.dumps(memory.get("coding_conventions", {}), indent=2)
 
     system_prompt = PromptTemplate.from_template(EXECUTOR_PROMPT).format(
-        api_tools_catalog=write_definitions.get_sandbox_tools_without_params()
+        api_tools_catalog=write_definitions.get_sandbox_tools_without_params(),
+        project_ecosystem=project_ecosystem,
+        coding_conventions=coding_conventions,
     )
     context_report = state.get("context_report")
     verification_report = state.get("verification_report")
@@ -1154,9 +1483,6 @@ async def e2e_testing_node(state: AgentState, config: RunnableConfig) -> Command
             f"Execution Report: {executor_messages[-1]}"
         )
     ]
-    await sandbox_builder.execute_agent_browser(
-        "agent-browser open http://localhost:3000"
-    )
     result = await _run_subagent(
         system_prompt=E2E_TESTING_PROMPT,
         tools=[
@@ -1167,7 +1493,6 @@ async def e2e_testing_node(state: AgentState, config: RunnableConfig) -> Command
         agent_name="e2e_testing",
         messages=messages_input,
     )
-    await sandbox_builder.execute_agent_browser("agent-browser close")
 
     raw = extract_json_content(result["messages"][-1])
     report = json.loads(raw)
@@ -1180,6 +1505,50 @@ async def e2e_testing_node(state: AgentState, config: RunnableConfig) -> Command
             },
             goto="verification",
         )
+
+    return Command(
+        update={"messages": result["messages"]},
+        goto="git",
+    )
+
+
+async def git_node(state: AgentState, config: RunnableConfig) -> Command:
+    git_builder = BuildGitTools(state["sandbox_id"])
+    await git_builder.ensure_git_remote_origin()
+
+    git_lc_tools = git_builder.as_langchain_tools()
+
+    git_definitions = BuildSandboxToolsDefinitions(allowed_tools=GIT_TOOLS)
+    read_get_params = git_definitions.as_langchain_tools()["get_tool_parameters"]
+    sandbox_builder = BuildSandboxTools(
+        state["sandbox_id"], tools_definitions=git_definitions
+    )
+    lc_tools = sandbox_builder.as_langchain_tools()
+    system_prompt = PromptTemplate.from_template(GIT_AGENT_PROMPT).format(
+        api_tools_catalog=git_definitions.get_sandbox_tools_without_params()
+    )
+
+    user_message = state.get("user_message")
+    executor_messages = state.get("executor_messages")
+
+    messages_input = [
+        HumanMessage(
+            f"User Task: {user_message.content}\n"
+            f"Execution Report: {executor_messages[-1]}"
+        )
+    ]
+
+    result = await _run_subagent(
+        system_prompt=system_prompt,
+        tools=[
+            lc_tools["execute_tool"],
+            read_get_params,
+            git_lc_tools["commit_changes"],
+        ],
+        state=state,
+        agent_name="git",
+        messages=messages_input,
+    )
 
     return Command(
         update={"messages": result["messages"]},
@@ -1197,6 +1566,7 @@ coding_workflow.add_node("context_gatherer", context_gatherer_node)
 coding_workflow.add_node("executor", executor_node)
 coding_workflow.add_node("verification", verification_node)
 coding_workflow.add_node("e2e_testing", e2e_testing_node)
+coding_workflow.add_node("git", git_node)
 
 
 coding_workflow.add_edge(START, "context_gatherer")

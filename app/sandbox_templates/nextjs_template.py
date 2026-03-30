@@ -52,21 +52,7 @@ def install_lightpanda_and_agent_browser_cmds():
 def init_actovator_cmd():
     return (
         "mkdir -p .actovator && "
-        'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > .actovator/config.json && '
-        "echo '{\n"
-        '  "ecosystem": {\n'
-        '    "description": "A Next.js / TypeScript project with app directory, Tailwind CSS, shadcn/ui.",\n'
-        '    "datasets": [\n'
-        '      "src/app",\n'
-        '      "public",\n'
-        '      "package.json",\n'
-        '      "tailwind.config.js",\n'
-        '      "next.config.js",\n'
-        '      "README.md",\n'
-        '      ".actovator"\n'
-        "    ]\n"
-        "  }\n"
-        "}' > .actovator/memory.json"
+        'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > .actovator/config.json'
     )
 
 
@@ -84,15 +70,6 @@ def run_init_next_script_cmd():
         "chmod +x .actovator/init-next.sh && .actovator/init-next.sh",
         "rm .actovator/init-next.sh",
     ]
-
-
-def write_tech_stack_json_cmd():
-    # Create the features dir if missing and write the tech stack file.
-    tech_stack_json = '{\n  "ecosystem": "nextjs, typescript, tailwindcss, shadcn"\n}'
-    return (
-        "mkdir -p .actovator/features && "
-        f"echo '{tech_stack_json}' > .actovator/features/tech_stack.json"
-    )
 
 
 def clone_serena_repo_cmd():
@@ -121,7 +98,7 @@ template = (
     .run_cmd(set_shadcn_init_cmds())
     .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
     .run_cmd(run_init_next_script_cmd())
-    .run_cmd(write_tech_stack_json_cmd())
+    .copy("memory_template.json", ".actovator/memory.json")
     .set_start_cmd(
         f'pm2 start npm --name "project" -- run dev ; '
         f'pm2 start uv --name "serena" -- run --directory /home/user/serena serena-server --project {PROJECT_PATH}',
