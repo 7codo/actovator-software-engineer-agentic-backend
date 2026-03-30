@@ -27,6 +27,73 @@ from app.constants import DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER
 # PROMPTS
 # ---------------------------------------------------------------------------
 
+# ------------------------------------
+# Symbolic Tools
+# ------------------------------------
+
+USING_SYMBOLIC_TOOLS_GUIDE = """\
+## Symbolic Tools Guide
+
+Whenever possible, use symbolic tools for accurate and reliable code investigate and changes. The language server is automatically enabled.
+
+---
+
+### symbolic investigation tools
+
+1. **`get_symbols_overview`** — Get a file's table of contents (classes, functions, methods).
+   - Set `depth: 1` or higher to see methods inside classes.
+   - Run this first when opening an unfamiliar file.
+
+2. **`find_symbol`** — Read the body of a specific symbol by name.
+   - Set `include_body: True` to retrieve source code.
+   - Use `relative_path` to narrow search to a specific file.
+
+3. **`find_referencing_symbols`** — Find everything that depends on a symbol.
+   - Run this before any rename or signature change.
+   - If results appear in other files, your change has cross-file impact.
+
+**Example workflow — exploring an unknown file:**
+> 1. Call `get_symbols_overview` on `auth.py` with `depth: 1` → discover class `AuthManager` with methods `login`, `logout`, `refresh_token`.
+> 2. Call `find_symbol` with `name_path_pattern: "AuthManager.refresh_token"`, `include_body: True` → read its logic.
+> 3. Call `find_referencing_symbols` with `name_path: "AuthManager.refresh_token"` → discover it's called in `session.py` and `api.py`.
+
+---
+
+### symbolic_editing_tools_only
+
+1. **`replace_symbol_body`** — Rewrite the logic inside an existing function or method.
+   - Include the signature line (`def ...`) along with the new body.
+   - Never delete and re-insert; always replace in place.
+
+2. **`insert_after_symbol`** — Insert new code after an existing symbol.
+   - Use for adding a new helper function or a new method at the end of a class.
+
+3. **`insert_before_symbol`** — Insert new code before an existing symbol.
+   - Use for adding imports or setup functions before the main logic.
+
+4. **`rename_symbol`** — Safely rename a variable, function, or class project-wide.
+   - Automatically updates all references across all files.
+   - Never use text search/replace for renaming — it can corrupt strings and comments.
+
+**Example workflow — updating a function and adding a new one:**
+> 1. Call `replace_symbol_body` with `name_path: "PaymentHandler.process_payment"` and the updated implementation (signature + body).
+> 2. Call `insert_after_symbol` with `name_path: "PaymentHandler.process_payment"` and the new `log_transaction` method body.
+> 3. Call `rename_symbol` with `name_path: "log_transaction"`, `new_name: "log_payment_transaction"` to rename it safely across the project.
+
+---
+
+### Tool Selection Reference
+
+| Goal | Tool |
+| :--- | :--- |
+| See file structure | `get_symbols_overview` |
+| Read specific logic | `find_symbol` |
+| Check dependencies | `find_referencing_symbols` |
+| Rewrite logic | `replace_symbol_body` |
+| Add code after a symbol | `insert_after_symbol` |
+| Add code before a symbol | `insert_before_symbol` |
+| Rename safely | `rename_symbol` |
+    """
 
 # ------------------------------------
 # CONTEXT GATHERER
@@ -493,15 +560,18 @@ Your responsibilities:
 2. Commit and push all changes to the remote repository.
 
 ---
+## Symbolic tools guide
+{USING_SYMBOLIC_TOOLS_GUIDE}
+
+---
 
 ## Rules
 - Before invoking any `execute_tool` action, you must first call `get_tool_parameters` to retrieve its parameters. This step is not required for the `commit_changes` tool.
-- Only read and write `.actovator/memory.json` — never investigate or modify any other file.
+- Only investigate and write `.actovator/memory.json` file — never investigate or modify any other file.
 - Never delete existing memory entries — only append or update.
 - Never change root-level keys — only modify their `data` arrays or `description` values.
 - Only update keys where the task produced new, factual, durable information.
 - Keep entries concise and factual — no opinions or speculation.
-- Prefer symbolic tools (`get_symbols_overview`, `find_symbol`, `replace_symbol_body`, `insert_after_symbol`, `insert_before_symbol`) over `replace_content`. Use `replace_content` only when symbolic tools cannot perform the edit.
 - Commit message must be a single imperative sentence, max 72 characters.
 
 ---
@@ -564,12 +634,11 @@ Your responsibilities:
 ---
 
 ## Workflow
-1. Inspect `.actovator/memory.json` — use `get_symbols_overview` first, then `find_symbol` for specific bodies.
+1. Investigate `.actovator/memory.json`.
 2. Identify which keys the task affects.
 3. Merge new information, preserving all unrelated keys exactly as-is.
 4. Append this task to `user_requests.data` with the next sequential `id` and `"status": "done"`.
-5. Apply updates using symbolic tools; fall back to `replace_content` only when necessary.
-6. Call `commit_changes` with a concise imperative commit message.
+5. Call `commit_changes` with a concise imperative commit message.
 
 ---
 
@@ -580,10 +649,8 @@ Your responsibilities:
 - [ ] All root-level keys present before the task remain present and unchanged in name after the task.
 - [ ] Only keys directly relevant to the completed task have modified `data` arrays or `description` values.
 - [ ] No entry in any `data` array contains subjective language, opinions, or speculative content.
-- [ ] Symbolic tools are used for all edits where applicable; `replace_content` used only when no symbolic tool could perform the same edit.
 - [ ] The commit message is a single imperative sentence of 72 characters or fewer.
-- [ ] `get_symbols_overview` is called on `memory.json` before any write operation is attempted.
-- [ ] `find_symbol` is used to inspect any specific key body before it is modified.
+- [ ] Investigation memory file occurs before perform the changes.
 - [ ] A new entry is appended to `user_requests.data` with an `id` one greater than the current maximum and `"status": "done"`.
 - [ ] `commit_changes` is the final tool call and is invoked exactly once.
 
@@ -1267,7 +1334,6 @@ GIT_TOOLS = [
     "replace_symbol_body",
     "insert_after_symbol",
     "insert_before_symbol",
-    "replace_content",
     "rename_symbol",
 ]
 
