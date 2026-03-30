@@ -2,11 +2,11 @@ import re
 import shlex
 import json
 from langchain.agents import create_agent
-from typing import Optional, List, Annotated
+from typing import Optional, List
 from jsonschema import Draft7Validator
 from e2b import AsyncSandbox
 from langchain.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from langgraph.types import Command
 from app.ai.llm.models import build_model
 from app.ai.tools.files_tools import get_agent_browser_skill
@@ -1249,12 +1249,12 @@ class AgentState(MessagesState):
     sandbox_id: str
     model_id: Optional[str]
     model_provider: Optional[str]
-    retry_count: Annotated[int, Field(default=0)]
-    verification_report: Optional[str]
-    context_report: Optional[str]
-    e2e_testing_report: Optional[str]
-    user_message: Optional[HumanMessage]
-    executor_report: Optional[str]
+    retry_count: int = 0
+    verification_report: Optional[str] = None
+    context_report: Optional[str] = None
+    e2e_testing_report: Optional[str] = None
+    user_message: Optional[HumanMessage] = None
+    executor_report: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
