@@ -560,8 +560,11 @@ Your responsibilities:
 2. Commit and push all changes to the remote repository.
 
 ---
+
 ## Symbolic tools guide
-{USING_SYMBOLIC_TOOLS_GUIDE}
+```
+{using_symbolic_tools_guide}
+```
 
 ---
 
@@ -1656,7 +1659,8 @@ async def git_node(state: AgentState, config: RunnableConfig) -> Command:
     )
     lc_tools = sandbox_builder.as_langchain_tools()
     system_prompt = PromptTemplate.from_template(GIT_AGENT_PROMPT).format(
-        api_tools_catalog=git_definitions.get_sandbox_tools_without_params()
+        api_tools_catalog=git_definitions.get_sandbox_tools_without_params(),
+        using_symbolic_tools_guide=USING_SYMBOLIC_TOOLS_GUIDE,
     )
 
     user_message = state.get("user_message")
