@@ -1,6 +1,8 @@
 import re
+import asyncio
 import shlex
 import json
+from datetime import datetime, timezone
 from langchain.agents import create_agent
 from typing import Optional, List
 from jsonschema import Draft7Validator
@@ -598,6 +600,50 @@ Respond in plain text. Summarize:
 # HELPERS
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# SANDBOX CONNECTION MANAGER
+# ---------------------------------------------------------------------------
+
+_SANDBOX_CACHE: dict[str, AsyncSandbox] = {}
+_SANDBOX_LOCK = asyncio.Lock()
+
+# Renew when less than this many seconds remain on the lease
+_RENEW_THRESHOLD_SECONDS = 60
+# How long to extend the timeout on each renewal (seconds)
+_RENEW_EXTENSION_SECONDS = 300
+
+
+async def get_or_connect_sandbox(sandbox_id: str) -> AsyncSandbox:
+    """
+    Return a cached AsyncSandbox for *sandbox_id*, creating one if needed.
+    Before returning, check the remaining lease time and renew if it is
+    below the threshold so long-running agent runs never hit the default
+    ~5-minute expiry.
+    """
+    async with _SANDBOX_LOCK:
+        sandbox = _SANDBOX_CACHE.get(sandbox_id)
+
+        if sandbox is None:
+            sandbox = await AsyncSandbox.connect(
+                sandbox_id=sandbox_id, api_key=settings.e2b_api_key
+            )
+            _SANDBOX_CACHE[sandbox_id] = sandbox
+
+        # Renew the lease when expiry is approaching.
+        try:
+            info = await sandbox.get_info()
+            end_at: datetime = info.end_at
+            if end_at.tzinfo is None:
+                end_at = end_at.replace(tzinfo=timezone.utc)
+            remaining = (end_at - datetime.now(timezone.utc)).total_seconds()
+            if remaining < _RENEW_THRESHOLD_SECONDS:
+                await sandbox.set_timeout(_RENEW_EXTENSION_SECONDS)
+        except Exception:
+            # Non-fatal: if the info call fails we still try to use the sandbox.
+            pass
+
+        return sandbox
+
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL)
 
@@ -727,7 +773,6 @@ class BuildSandboxTools:
     ) -> None:
         self.sdbx_id = sdbx_id
         self._tools_definitions = tools_definitions
-        self._sandbox: Optional[AsyncSandbox] = None
 
     def _validate_tool_params(self, tool_name: str, tool_params: dict) -> Optional[str]:
         """
@@ -777,11 +822,7 @@ class BuildSandboxTools:
         )
 
     async def _get_sandbox(self) -> AsyncSandbox:
-        if self._sandbox is None:
-            self._sandbox = await AsyncSandbox.connect(
-                sandbox_id=self.sdbx_id, api_key=settings.e2b_api_key
-            )
-        return self._sandbox
+        return await get_or_connect_sandbox(self.sdbx_id)
 
     def _shell_error(self, context: str, exc: Exception) -> dict:
         return {
@@ -1032,14 +1073,9 @@ class BuildGitTools:
         sdbx_id: str,
     ) -> None:
         self.sdbx_id = sdbx_id
-        self._sandbox: Optional[AsyncSandbox] = None
 
     async def _get_sandbox(self) -> AsyncSandbox:
-        if self._sandbox is None:
-            self._sandbox = await AsyncSandbox.connect(
-                sandbox_id=self.sdbx_id, api_key=settings.e2b_api_key
-            )
-        return self._sandbox
+        return await get_or_connect_sandbox(self.sdbx_id)
 
     def _shell_error(self, context: str, exc: Exception) -> dict:
         return {
