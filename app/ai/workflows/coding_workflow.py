@@ -1,11 +1,12 @@
 import re
+import shlex
 import json
 from langchain.agents import create_agent
-from typing import Optional, List
+from typing import Optional, List, Annotated
 from jsonschema import Draft7Validator
 from e2b import AsyncSandbox
 from langchain.tools import tool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langgraph.types import Command
 from app.ai.llm.models import build_model
 from app.ai.tools.files_tools import get_agent_browser_skill
@@ -63,7 +64,7 @@ Processing depends on the input path:
 
 ### Normal Path:
 - **User task** — a natural language description of the requested change or feature.
-- **Execution History** — previous changes made by the executor agent.
+- **Latest Execution report** — latest execution report.
 
 ### Insufficient Context Path:
 If the Executor agent could not proceed due to lack of information, you will receive a verification report from the Verifier agent containing these additional inputs:
@@ -550,9 +551,12 @@ Your responsibilities:
 ## Inputs
 - `user_task`: the original user request
 - `execution_report`: JSON summary of files changed, packages installed, and symbols modified
+
+---
+
 - **Tool catalog**
 ```json
-{{api_tools_catalog}}
+{api_tools_catalog}
 ```
 
 ---
@@ -596,7 +600,6 @@ Respond in plain text. Summarize:
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL)
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def extract_json_content(message: BaseMessage) -> str:
@@ -609,17 +612,47 @@ def extract_json_content(message: BaseMessage) -> str:
             "",
         )
 
-    # Priority 1: extract from markdown fence
+    content = content.strip()
+
+    # Priority 1: markdown fence — validate before returning
     match = _JSON_FENCE_RE.search(content)
     if match:
-        return match.group(1).strip()
+        candidate = match.group(1).strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass  # fence content wasn't valid JSON — fall through
 
-    # Priority 2: extract raw JSON object
-    match = _JSON_OBJECT_RE.search(content)
-    if match:
-        return match.group(0).strip()
+    # Priority 2: try the whole string directly
+    try:
+        json.loads(content)
+        return content
+    except json.JSONDecodeError:
+        pass
 
-    return content.strip()
+    # Priority 3: scan for every '{' and try to parse outward from it.
+    # Prefer the longest valid match (outermost object wins over a nested one).
+    best: str | None = None
+    for start in (i for i, ch in enumerate(content) if ch == "{"):
+        # Walk backwards from the end to find the matching close brace
+        for end in range(len(content), start, -1):
+            if content[end - 1] != "}":
+                continue
+            candidate = content[start:end]
+            try:
+                json.loads(candidate)
+                if best is None or len(candidate) > len(best):
+                    best = candidate
+                break  # longest match from this start found; try the next '{'
+            except json.JSONDecodeError:
+                continue
+
+    if best is not None:
+        return best
+
+    # Nothing parsed — return raw content and let the caller surface the error
+    return content
 
 
 class BuildSandboxToolsDefinitions:
@@ -1132,7 +1165,7 @@ class BuildGitTools:
         try:
             await self.execute_shell_command("git add -A", cwd=PROJECT_PATH)
             result = await self.execute_shell_command(
-                f'git commit -m "{message}"', cwd=PROJECT_PATH
+                f"git commit -m {shlex.quote(message)}", cwd=PROJECT_PATH
             )
             if result.exit_code != 0:
                 return {"ok": False, "stdout": result.stdout, "stderr": result.stderr}
@@ -1216,12 +1249,12 @@ class AgentState(MessagesState):
     sandbox_id: str
     model_id: Optional[str]
     model_provider: Optional[str]
-    retry_count: int = 0
-    verification_report: Optional[str] = None
-    context_report: Optional[str] = None
-    e2e_testing_report: Optional[str] = None
-    user_message: Optional[HumanMessage] = None
-    executor_messages: List[str] = []
+    retry_count: Annotated[int, Field(default=0)]
+    verification_report: Optional[str]
+    context_report: Optional[str]
+    e2e_testing_report: Optional[str]
+    user_message: Optional[HumanMessage]
+    executor_report: Optional[str]
 
 
 # ---------------------------------------------------------------------------
@@ -1288,7 +1321,7 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
     messages = state.get("messages")
     verification_report = state.get("verification_report")
     context_report = state.get("context_report")
-    executor_messages = state.get("executor_messages")
+    executor_report = state.get("executor_report")
 
     user_message = next(
         (
@@ -1310,12 +1343,12 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
             )
         ]
     else:
-        if executor_messages is None:
+        if executor_report is None:
             messages_input = [HumanMessage(f"User Task: {user_message.content}")]
         else:
             messages_input = [
                 HumanMessage(
-                    f"User Task: {user_message.content}\n\n\n---\n\n\nExecutions History: {'\n---\n'.join(executor_messages)}"
+                    f"User Task: {user_message.content}\n---\nExecution Report: {executor_report}"
                 )
             ]
 
@@ -1326,7 +1359,7 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
         agent_name="context_gatherer",
         messages=messages_input,
     )
-    context_report = result["messages"][-1].content
+    context_report = extract_json_content(result["messages"][-1])
     return {
         "messages": result["messages"],
         "user_message": user_message,
@@ -1383,11 +1416,8 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
         agent_name="executor",
     )
 
-    executor_messages = state.get("executor_messages") or []
-    return {
-        "messages": result["messages"],
-        "executor_messages": [*executor_messages, result["messages"][-1].content],
-    }
+    executor_report = extract_json_content(result["messages"][-1])
+    return {"messages": result["messages"], "executor_report": executor_report}
 
 
 async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -1405,7 +1435,7 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
     user_message = state.get("user_message")
     context_report = state.get("context_report")
     retry_count = state.get("retry_count")
-    executor_messages = state.get("executor_messages")
+    executor_report = state.get("executor_report")
     e2e_testing_report = state.get("e2e_testing_report")
     if e2e_testing_report:
         messages_input = [
@@ -1416,7 +1446,7 @@ async def verification_node(state: AgentState, config: RunnableConfig) -> dict:
             HumanMessage(
                 f"User Task: {user_message.content}\n"
                 f"Context Report: {context_report}\n"
-                f"Execution Report: {executor_messages[-1]}"
+                f"Execution Report: {executor_report}"
             )
         ]
 
@@ -1475,12 +1505,11 @@ async def e2e_testing_node(state: AgentState, config: RunnableConfig) -> Command
 
     user_message = state.get("user_message")
 
-    executor_messages = state.get("executor_messages")
+    executor_report = state.get("executor_report")
 
     messages_input = [
         HumanMessage(
-            f"User Task: {user_message.content}\n"
-            f"Execution Report: {executor_messages[-1]}"
+            f"User Task: {user_message.content}\nExecution Report: {executor_report}"
         )
     ]
     result = await _run_subagent(
@@ -1529,12 +1558,11 @@ async def git_node(state: AgentState, config: RunnableConfig) -> Command:
     )
 
     user_message = state.get("user_message")
-    executor_messages = state.get("executor_messages")
+    executor_report = state.get("executor_report")
 
     messages_input = [
         HumanMessage(
-            f"User Task: {user_message.content}\n"
-            f"Execution Report: {executor_messages[-1]}"
+            f"User Task: {user_message.content}\nExecution Report: {executor_report}"
         )
     ]
 
