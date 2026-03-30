@@ -240,6 +240,8 @@ You are the Executor. Based on the context from the context_gatherer agent, impl
 ## Project Context
 - **Project Ecosystem:** {project_ecosystem}
 - **Coding Conventions:** {coding_conventions}
+- **Project Architecture:** {architecture}
+- **Coding preferences:** {preferences}
 
 ---
 
@@ -551,12 +553,11 @@ Return a single JSON object. Nothing else.
 - `scenarios` — always present; minimum 1 `happy_path` + 1 `edge_case`
 """
 
-# ADD after E2E_TESTING_PROMPT
 GIT_AGENT_PROMPT = """\
 ## Role
 You are the Memory & Commit Agent. You run after all code changes have been verified and tested.
 Your responsibilities:
-1. Update `.actovator/memory.json` with durable learnings from the completed task.
+1. Update `.actovator/memory.md` with durable learnings from the completed task.
 2. Commit and push all changes to the remote repository.
 
 ---
@@ -570,55 +571,120 @@ Your responsibilities:
 
 ## Rules
 - Before invoking any `execute_tool` action, you must first call `get_tool_parameters` to retrieve its parameters. This step is not required for the `commit_changes` tool.
-- Only investigate and write `.actovator/memory.json` file — never investigate or modify any other file.
+- Only investigate and write `.actovator/memory.md` — never investigate or modify any other file.
 - Never delete existing memory entries — only append or update.
-- Never change root-level keys — only modify their `data` arrays or `description` values.
-- Only update keys where the task produced new, factual, durable information.
+- Ensure all headings match the names in the reference schema
+- Insert any missing headings so all reference headings are present
+- Only update sections where the task produced new, factual, durable information.
 - Keep entries concise and factual — no opinions or speculation.
 - Commit message must be a single imperative sentence, max 72 characters.
 
 ---
 
-## Supported Memory Keys
-| Key | What to store |
+## Memory Structure
+
+The memory file is a markdown document with three top-level sections:
+
+### # Project
+Describes the technical foundation of the project.
+
+| Section | What to store |
 |---|---|
-| `project_ecosystem` | Framework, language, router, root, styling, ui_library |
-| `project_structure` | New directories, entry points, file location conventions |
-| `architecture_decisions` | Design choices, trade-offs, rejected alternatives |
-| `coding_conventions` | Naming rules, file patterns, formatting preferences |
-| `user_requests` | This task appended as a completed entry with auto-incremented id |
-| `user_preferences` | Preferred patterns, libraries, avoided approaches |
+| `## Ecosystem` | Framework, language, router, root, styling, ui_library — stored as a markdown table |
+| `## Structure` | Key directories and their roles — stored as a markdown table |
+| `## Architecture` | Design decisions with chosen approach, reason, and rejected alternative — each as a `###` subsection |
+| `## Conventions` | Naming rules and file patterns — stored as markdown lists under named `###` subsections |
+
+### # Development
+Captures ongoing development activity.
+
+| Section | What to store |
+|---|---|
+| `## User Requests` | Append this task as a new list item |
+| `## Preferences` | Preferred and avoided patterns — under `**Prefer**` and `**Avoid**` blocks |
+| `## Errors` | Failure history entries — each as a `###` subsection with Error, Cause, and Fix |
+
+### # Knowledge
+Captures domain and business rules.
+
+| Section | What to store |
+|---|---|
+| `## Domain` | Business rules — each as a `###` subsection with Rule, Affects, and Source |
 
 ---
 
-## Memory Schema Reference
-```json
-{{
-  "project_ecosystem": {{
-    "description": "Core stack identity of the project",
-    "data": [{{ "framework": "...", "language": "...", "router": "...", "root": "...", "styling": "...", "ui_library": "..." }}]
-  }},
-  "project_structure": {{
-    "description": "Key directories, entry points, and file location conventions",
-    "data": [{{ "path": "...", "role": "..." }}]
-  }},
-  "architecture_decisions": {{
-    "description": "Key design choices, trade-offs, and rejected alternatives",
-    "data": [{{ "decision": "...", "reason": "..." }}]
-  }},
-  "coding_conventions": {{
-    "description": "Naming rules, file patterns, and formatting preferences",
-    "data": []
-  }},
-  "user_requests": {{
-    "description": "Tasks and instructions history with status",
-    "data": [{{ "id": 1, "request": "...", "status": "done" }}]
-  }},
-  "user_preferences": {{
-    "description": "Preferred patterns, libraries, and rejected approaches",
-    "data": [{{ "prefer": "...", "avoid": "..." }}]
-  }}
-}}
+## Memory Schema Example Reference
+```markdown
+# Project
+
+## Ecosystem
+
+| Concern | Choice |
+|---|---|
+| UI Framework / Runtime | Next.js |
+| Language / Type System | TypeScript |
+| Router / Navigation | App Directory |
+| Source Entry Point | `src/` |
+| Styling | Tailwind CSS |
+| Component Primitives | shadcn/ui |
+
+## Structure
+
+| Key | Path | Role |
+|---|---|---|
+| `app` | `src/app` | App router pages and layouts |
+| `components` | `src/components` | Shared UI components |
+| `lib` | `src/lib` | Utilities and helpers |
+
+## Architecture
+
+### Server Components (Rendering Strategy)
+- **Chosen:** Use Server Components by default
+- **Reason:** Reduce client bundle size
+- **Rejected:** All client components
+
+## Conventions
+
+### Naming
+- Components (React): `PascalCase`
+- Files (filesystem): `kebab-case`
+- Custom hook prefix: `use`
+
+---
+
+# Development
+
+## User Requests
+
+- user request 1
+- user request 2
+- user request 3
+
+## Preferences
+
+**Prefer**
+- Arrow functions over function declarations
+
+**Avoid**
+- Default exports for components
+
+## Errors — Failure History
+
+### Hydration Mismatch — ThemeProvider
+- **Error:** Hydration mismatch on `ThemeProvider`
+- **Cause:** Missing `suppressHydrationWarning`
+- **Fix:** Added `suppressHydrationWarning` to `<html>`
+
+---
+
+# Knowledge
+
+## Domain
+
+### Free Tier — Project Limit
+- **Rule:** Free users limited to 3 projects
+- **Affects:** `src/app/dashboard`
+- **Source:** Product spec v2
 ```
 
 ---
@@ -637,33 +703,32 @@ Your responsibilities:
 ---
 
 ## Workflow
-1. Investigate `.actovator/memory.json`.
-2. Identify which keys the task affects.
-3. Merge new information, preserving all unrelated keys exactly as-is.
-4. Append this task to `user_requests.data` with the next sequential `id` and `"status": "done"`.
+1. Investigate `.actovator/memory.md`.
+2. Identify which sections the task affects.
+3. Merge new information, preserving all unrelated sections exactly as-is.
+4. Append this task as a new list item under `## User requests`.
 5. Call `commit_changes` with a concise imperative commit message.
 
 ---
 
-### Acceptance Criteria
+## Acceptance Criteria
 - [ ] Every `execute_tool` call is preceded by a `get_tool_parameters` call for the same tool (except `commit_changes`).
-- [ ] No file other than `.actovator/memory.json` is read from or written to during execution.
-- [ ] The final state of `memory.json` contains all pre-existing entries — none removed.
-- [ ] All root-level keys present before the task remain present and unchanged in name after the task.
-- [ ] Only keys directly relevant to the completed task have modified `data` arrays or `description` values.
-- [ ] No entry in any `data` array contains subjective language, opinions, or speculative content.
+- [ ] No file other than `.actovator/memory.md` is read from or written to during execution.
+- [ ] All top-level and subsection headings in `.actovator/memory.md` match exactly the names specified in the reference schema.
+- [ ] Any missing headings from the reference schema are inserted, ensuring that every heading defined by the schema is present in the final document.
+- [ ] Only sections directly relevant to the completed task have modified content.
+- [ ] No entry contains subjective language, opinions, or speculative content.
 - [ ] The commit message is a single imperative sentence of 72 characters or fewer.
-- [ ] Investigation memory file occurs before perform the changes.
-- [ ] A new entry is appended to `user_requests.data` with an `id` one greater than the current maximum and `"status": "done"`.
+- [ ] Investigation of the memory file occurs before any changes are made.
+- [ ] A new list item is appended under `## User Requests`.
 - [ ] `commit_changes` is the final tool call and is invoked exactly once.
 
 ---
 
 Respond in plain text. Summarize:
-- Which memory keys were updated and what was added
+- Which memory sections were updated and what was added
 - The commit message used
 - Any issues encountered
-```
 """
 
 # ---------------------------------------------------------------------------
@@ -927,13 +992,28 @@ class BuildSandboxTools:
         except Exception as e:
             return {"url": None, "port": port, "error": f"[{type(e).__name__}] {e}"}
 
-    async def read_memory(self, path: str = ".actovator/memory.json") -> dict:
+    async def read_memory(self, path: str = ".actovator/memory.md") -> str:
         try:
             sandbox = await self._get_sandbox()
-            raw = await sandbox.files.read(path)
-            return json.loads(raw)
+            return await sandbox.files.read(path)
         except Exception:
-            return {}
+            return ""
+
+    @staticmethod
+    def _extract_memory_section(markdown: str, heading: str) -> str:
+        """Extract content under a ## heading until the next ## or end of file."""
+        lines = markdown.splitlines()
+        inside = False
+        collected = []
+        for line in lines:
+            if line.strip().startswith("## ") and heading.lower() in line.lower():
+                inside = True
+                continue
+            if inside:
+                if line.startswith("## ") or line.startswith("# "):
+                    break
+                collected.append(line)
+        return "\n".join(collected).strip()
 
     async def get_server_logs(self, lines_count: int = 25) -> str:
         try:
@@ -1414,8 +1494,8 @@ async def context_gatherer_node(state: AgentState, config: RunnableConfig) -> di
         state["sandbox_id"], tools_definitions=read_definitions
     )
     memory = await sandbox_builder.read_memory()
-    project_ecosystem = json.dumps(memory.get("project_ecosystem", {}), indent=2)
-    project_structure = json.dumps(memory.get("project_structure", {}), indent=2)
+    project_ecosystem = sandbox_builder._extract_memory_section(memory, "Ecosystem")
+    project_structure = sandbox_builder._extract_memory_section(memory, "Structure")
     lc_tools = sandbox_builder.as_langchain_tools()
 
     system_prompt = PromptTemplate.from_template(CONTEXT_GATHERER_PROMPT).format(
@@ -1480,13 +1560,17 @@ async def executor_node(state: AgentState, config: RunnableConfig) -> dict:
     )
     lc_tools = sandbox_builder.as_langchain_tools()
     memory = await sandbox_builder.read_memory()
-    project_ecosystem = json.dumps(memory.get("project_ecosystem", {}), indent=2)
-    coding_conventions = json.dumps(memory.get("coding_conventions", {}), indent=2)
+    project_ecosystem = sandbox_builder._extract_memory_section(memory, "Ecosystem")
+    coding_conventions = sandbox_builder._extract_memory_section(memory, "Conventions")
+    architecture = sandbox_builder._extract_memory_section(memory, "Architecture")
+    preferences = sandbox_builder._extract_memory_section(memory, "Preferences")
 
     system_prompt = PromptTemplate.from_template(EXECUTOR_PROMPT).format(
         api_tools_catalog=write_definitions.get_sandbox_tools_without_params(),
         project_ecosystem=project_ecosystem,
         coding_conventions=coding_conventions,
+        architecture=architecture,
+        preferences=preferences,
     )
     context_report = state.get("context_report")
     verification_report = state.get("verification_report")

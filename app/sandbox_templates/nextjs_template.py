@@ -98,7 +98,7 @@ template = (
     .run_cmd(set_shadcn_init_cmds())
     .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
     .run_cmd(run_init_next_script_cmd())
-    .copy("memory_template.json", ".actovator/memory.json")
+    .copy("memory_template.md", ".actovator/memory.md")
     .set_start_cmd(
         f'pm2 start npm --name "project" -- run dev ; '
         f'pm2 start uv --name "serena" -- run --directory /home/user/serena serena-server --project {PROJECT_PATH}',
