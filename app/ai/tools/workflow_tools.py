@@ -10,7 +10,7 @@ def assign_prd_saving_completed(feature_path: str) -> str:
     Assign PRD Saving Completed: Marks the PRD generator process as done and informs other workflow nodes.
 
     Args:
-        feature_path (str): The path to the saved PRD file in this format: .actovator/features/[feature-name]/prd.md
+        feature_path (str): The path to the saved PRD file in this format: actovator/features/[feature-name]/prd.md
 
     Returns:
         str: A confirmation message indicating where the PRD was saved.

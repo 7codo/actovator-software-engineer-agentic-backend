@@ -1,8 +1,8 @@
-
 from typing import List
 from e2b import AsyncSandbox
 from e2b.sandbox.filesystem.filesystem import WriteEntry
 from app.core.config import settings
+from app.constants import PROJECT_PATH
 
 
 async def create_sandbox_with_auto_pause(github_token: str | None = None):
@@ -54,7 +54,6 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
             "git config --global --add safe.directory '*'", user="root"
         )
         print("[DEBUG] Result:", result)
-    
 
     return sandbox.sandbox_id
 
@@ -150,11 +149,43 @@ async def kill_sandbox(sandbox_id: str):  ## kill for beta save sandbox meaning 
     await sandbox.kill()
 
 
-
 # if __name__ == "__main__":
 #     import asyncio
 #     import httpx
-    
+
 
 #     # Run the async function
 #     asyncio.run(restart_server())
+
+# from e2b.sandbox.filesystem.filesystem import WriteEntry
+
+test_content = """\
+test:
+    - test
+"""
+
+
+async def test():
+    result = await create_sandbox_with_auto_pause()
+    print(result)
+    # sandbox = await AsyncSandbox.connect(
+    #     sandbox_id="iu25wtzky98q4kh2kt1u3", api_key=settings.e2b_api_key
+    # )
+    # # result = await sandbox.commands.run("mkdir -p .folder", cwd=PROJECT_PATH)
+    # # Prepare WriteEntry for the content
+    # files = [
+    #     WriteEntry(
+    #         path="project/.folder/second.yml",
+    #         data=test_content,
+    #     )
+    # ]
+
+    # # Use write_files instead of upload
+    # result = await sandbox.files.write_files(files)
+    # print(result)
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(test())

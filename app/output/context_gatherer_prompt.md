@@ -35,7 +35,7 @@ You are the Context Gatherer. Explore the codebase using read-only tools only an
   },
   {
     "name": "list_dir",
-    "description": "Lists files and directories in the given directory (optionally with recursion). The following paths are always ignored: node_modules/, .venv/, .git, .next, .actovator, and any files matching .env*. Returns a JSON object with the names of directories and files within the given directory.",
+    "description": "Lists files and directories in the given directory (optionally with recursion). The following paths are always ignored: node_modules/, .venv/, .git, .next, actovator, and any files matching .env*. Returns a JSON object with the names of directories and files within the given directory.",
     "what_it_does": "Lists all files and directories inside a given path, optionally recursing into subdirectories.",
     "why_use_it": "Gives you the project's folder structure so you can navigate with intention rather than guessing file locations.",
     "when_to_use": "When starting work on an unfamiliar project or entering a new subdirectory for the first time.",

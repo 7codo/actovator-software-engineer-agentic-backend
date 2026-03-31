@@ -51,13 +51,13 @@ def install_lightpanda_and_agent_browser_cmds():
 
 def init_actovator_cmd():
     return (
-        "mkdir -p .actovator && "
-        'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > .actovator/config.json'
+        "mkdir -p actovator && "
+        'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > actovator/config.json'
     )
 
 
 def create_test_directories_cmd():
-    return "mkdir -p /tmp/agent-browser-data .actovator/features"
+    return "mkdir -p /tmp/agent-browser-data actovator/features"
 
 
 def set_shadcn_init_cmds():
@@ -66,15 +66,26 @@ def set_shadcn_init_cmds():
 
 def run_init_next_script_cmd():
     return [
-        "sed -i 's/\\r//' .actovator/init-next.sh",
-        "chmod +x .actovator/init-next.sh && .actovator/init-next.sh",
-        "rm .actovator/init-next.sh",
+        "sed -i 's/\\r//' actovator/init-next.sh",
+        "chmod +x actovator/init-next.sh && actovator/init-next.sh",
+        "rm actovator/init-next.sh",
     ]
 
 
 def clone_serena_repo_cmd():
     # Shallow clone for faster CI image builds
     return "git clone --depth=1 https://github.com/7codo/serena.git /home/user/serena"
+
+
+def install_lsp_servers_cmd():
+    return [
+        "npm install -g bash-language-server yaml-language-server",
+        (
+            "curl -L -o /usr/local/bin/marksman "
+            "https://github.com/artempyanykh/marksman/releases/latest/download/marksman-linux-x64 "
+            "&& chmod +x /usr/local/bin/marksman"
+        ),
+    ]
 
 
 template = (
@@ -85,6 +96,7 @@ template = (
     .run_cmd(install_nodejs_cmd(), user="root")
     .run_cmd(install_github_cli_cmd(), user="root")
     .run_cmd(install_global_tools_cmds(), user="root")
+    .run_cmd(install_lsp_servers_cmd(), user="root")
     .run_cmd(install_lightpanda_and_agent_browser_cmds(), user="root")
     .run_cmd(clone_serena_repo_cmd())
     .set_user("user")
@@ -96,9 +108,9 @@ template = (
     .run_cmd(init_actovator_cmd())
     .run_cmd(create_test_directories_cmd())
     .run_cmd(set_shadcn_init_cmds())
-    .copy("nextjs_cleanup_script.sh", ".actovator/init-next.sh")
+    .copy("nextjs_cleanup_script.sh", "actovator/init-next.sh")
     .run_cmd(run_init_next_script_cmd())
-    .copy("memory_template.md", ".actovator/memory.md")
+    .copy("memory_template.md", "actovator/memory.md")
     .set_start_cmd(
         f'pm2 start npm --name "project" -- run dev ; '
         f'pm2 start uv --name "serena" -- run --directory /home/user/serena serena-server --project {PROJECT_PATH}',

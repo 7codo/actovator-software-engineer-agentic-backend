@@ -138,10 +138,10 @@ agent-browser find label "Email"    fill "admin@example.com"
 agent-browser find label "Password" fill "adminpass"
 agent-browser find text "Log in" click
 agent-browser wait --url "**/dashboard"
-agent-browser state save .actovator/auth-admin.json
+agent-browser state save actovator/auth-admin.json
 
 # All subsequent tests — skip login entirely
-agent-browser state load .actovator/auth-admin.json
+agent-browser state load actovator/auth-admin.json
 agent-browser open http://localhotst:3000/protected-page
 agent-browser wait --text "Protected Content"
 ```

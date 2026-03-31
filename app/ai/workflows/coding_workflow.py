@@ -557,7 +557,7 @@ GIT_AGENT_PROMPT = """\
 ## Role
 You are the Memory & Commit Agent. You run after all code changes have been verified and tested.
 Your responsibilities:
-1. Update `.actovator/memory.md` with durable learnings from the completed task.
+1. Update `actovator/memory.md` with durable learnings from the completed task.
 2. Commit and push all changes to the remote repository.
 
 ---
@@ -571,7 +571,7 @@ Your responsibilities:
 
 ## Rules
 - Before invoking any `execute_tool` action, you must first call `get_tool_parameters` to retrieve its parameters. This step is not required for the `commit_changes` tool.
-- Only investigate and write `.actovator/memory.md` — never investigate or modify any other file.
+- Only investigate and write `actovator/memory.md` — never investigate or modify any other file.
 - Never delete existing memory entries — only append or update.
 - Ensure all headings match the names in the reference schema
 - Insert any missing headings so all reference headings are present
@@ -703,7 +703,7 @@ Captures domain and business rules.
 ---
 
 ## Workflow
-1. Investigate `.actovator/memory.md`.
+1. Investigate `actovator/memory.md`.
 2. Identify which sections the task affects.
 3. Merge new information, preserving all unrelated sections exactly as-is.
 4. Append this task as a new list item under `## User requests`.
@@ -713,8 +713,8 @@ Captures domain and business rules.
 
 ## Acceptance Criteria
 - [ ] Every `execute_tool` call is preceded by a `get_tool_parameters` call for the same tool (except `commit_changes`).
-- [ ] No file other than `.actovator/memory.md` is read from or written to during execution.
-- [ ] All top-level and subsection headings in `.actovator/memory.md` match exactly the names specified in the reference schema.
+- [ ] No file other than `actovator/memory.md` is read from or written to during execution.
+- [ ] All top-level and subsection headings in `actovator/memory.md` match exactly the names specified in the reference schema.
 - [ ] Any missing headings from the reference schema are inserted, ensuring that every heading defined by the schema is present in the final document.
 - [ ] Only sections directly relevant to the completed task have modified content.
 - [ ] No entry contains subjective language, opinions, or speculative content.
@@ -992,7 +992,7 @@ class BuildSandboxTools:
         except Exception as e:
             return {"url": None, "port": port, "error": f"[{type(e).__name__}] {e}"}
 
-    async def read_memory(self, path: str = ".actovator/memory.md") -> str:
+    async def read_memory(self, path: str = "actovator/memory.md") -> str:
         try:
             sandbox = await self._get_sandbox()
             return await sandbox.files.read(path)

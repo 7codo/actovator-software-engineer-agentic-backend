@@ -14,7 +14,7 @@ from app.core.config import settings
 # Constants
 # ---------------------------------------------------------------------------
 
-_ACTOVATOR_PATH = f"{PROJECT_PATH}/.actovator"
+_ACTOVATOR_PATH = f"{PROJECT_PATH}/actovator"
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +116,6 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
         """
 
         try:
-            
             result = await execute_shell_command(
                 f"pm2 logs project --raw --time --lines {lines_count} --nostream"
             )
@@ -130,7 +129,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
             if not any(line.startswith(p) for p in skip_prefixes)
         ]
         return "\n".join(lines).strip()
-    
+
     async def get_lint_checks() -> str:
         """Run ESLint on the Next.js project and return the results."""
         try:
@@ -205,7 +204,7 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
             "stderr": getattr(result, "stderr", ""),
             "exit_code": getattr(result, "exit_code", 1),
         }
-    
+
     @tool
     async def execute_tool(
         tool_name: str,
@@ -244,10 +243,10 @@ def build_sandbox_tools(sdbx_id: str) -> dict[str, BaseTool | callable]:
             base_url = tools_api_base_url.rstrip("/")
             url = f"{base_url}/tools/{tool_name}"
             command = (
-                f"curl -sS -X POST {url} "          
+                f"curl -sS -X POST {url} "
                 f"-H 'Content-Type: application/json' "
                 f"-d '@{payload_path}'"
-                f"; echo \"HTTP_STATUS:$?\""         
+                f'; echo "HTTP_STATUS:$?"'
             )
 
             result = await execute_shell_command(command, cwd=PROJECT_PATH)
