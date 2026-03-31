@@ -16,8 +16,14 @@ shadcn integrates components as source code via CLI. Your job: plan, confirm, an
 
 ### Fresh Path
 If there is no project design system.
-- load the previous user requests memory using `get_user_requests_memory` tool
+#### Gather context and user preferences
+- read the previous user requests memory
 - If you need additional information from the user, ask clear, simple questions suitable for non-technical users before proceeding.
+
+#### Gobal design system
+- 
+
+
 
 
 

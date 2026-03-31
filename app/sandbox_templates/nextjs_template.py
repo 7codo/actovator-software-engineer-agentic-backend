@@ -51,17 +51,9 @@ def install_lightpanda_and_agent_browser_cmds():
 
 def init_actovator_cmd():
     return (
-        "mkdir -p actovator && "
+        "mkdir -p actovator tmp && "
         'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > actovator/config.json'
     )
-
-
-def create_test_directories_cmd():
-    return "mkdir -p /tmp/agent-browser-data actovator/features"
-
-
-def set_shadcn_init_cmds():
-    return ["npx shadcn@latest init -d", "npx shadcn@latest add button"]
 
 
 def run_init_next_script_cmd():
@@ -106,11 +98,10 @@ template = (
         "--use-npm --app --no-react-compiler --src-dir --turbopack --yes"
     )
     .run_cmd(init_actovator_cmd())
-    .run_cmd(create_test_directories_cmd())
-    .run_cmd(set_shadcn_init_cmds())
     .copy("nextjs_cleanup_script.sh", "actovator/init-next.sh")
     .run_cmd(run_init_next_script_cmd())
-    .copy("memory_template.md", "actovator/memory.md")
+    .copy("project_memory_template.md", "actovator/project_memory.md")
+    .copy("system_memory_template.md", "actovator/system_memory.md")
     .set_start_cmd(
         f'pm2 start npm --name "project" -- run dev ; '
         f'pm2 start uv --name "serena" -- run --directory /home/user/serena serena-server --project {PROJECT_PATH}',

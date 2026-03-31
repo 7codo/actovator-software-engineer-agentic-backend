@@ -38,7 +38,7 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
 
         print("[DEBUG] Setting global git credential.helper to store...")
         result = await sandbox.commands.run(
-            "git config --global credential.helper store"
+            "git config --global credential.helper store", user="root"
         )
         print("[DEBUG] Result:", result)
 
@@ -169,7 +169,7 @@ async def test():
     result = await create_sandbox_with_auto_pause()
     print(result)
     # sandbox = await AsyncSandbox.connect(
-    #     sandbox_id="iu25wtzky98q4kh2kt1u3", api_key=settings.e2b_api_key
+    #     sandbox_id="", api_key=settings.e2b_api_key
     # )
     # # result = await sandbox.commands.run("mkdir -p .folder", cwd=PROJECT_PATH)
     # # Prepare WriteEntry for the content
