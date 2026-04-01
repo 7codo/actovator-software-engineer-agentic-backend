@@ -76,12 +76,6 @@ agent-browser --session test-signup open http://localhotst:3000/signup
 agent-browser --session test-signup find label "Name" fill "Alice"
 ```
 
-### Full-page screenshot regression
-```bash
-agent-browser open http://localhotst:3000
-agent-browser wait --load networkidle
-```
-
 ---
 
 ## Reliable Waiting (avoid flaky tests)
