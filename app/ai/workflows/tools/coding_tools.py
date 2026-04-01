@@ -341,7 +341,7 @@ class BuildSandboxTools:
         except Exception as e:
             return self._shell_error(f"Failed to {action} npm package '{package}'", e)
 
-    async def process_screenshot(self) -> dict:
+    async def process_screenshot(self, url: str) -> dict:
         import time
 
         timestamp = int(time.time())
@@ -349,7 +349,15 @@ class BuildSandboxTools:
 
         try:
             result = await self.execute_shell_command(
-                f"agent-browser --engine chromium screenshot --full {screenshot_filename}",
+                "agent-browser close",
+                user="root",
+            )
+            result = await self.execute_shell_command(
+                f"agent-browser open {url}",
+                user="root",
+            )
+            result = await self.execute_shell_command(
+                f"agent-browser screenshot --full {screenshot_filename}",
                 user="root",
             )
             print("result", result)
@@ -408,9 +416,7 @@ class BuildSandboxTools:
                 parts.insert(2, "lightpanda")
             stripped = " ".join(parts)
         try:
-            result = await self.execute_shell_command(
-                stripped, cwd=PROJECT_PATH, user="root"
-            )
+            result = await self.execute_shell_command(stripped, cwd=PROJECT_PATH)
             return {
                 "stdout": getattr(result, "stdout", ""),
                 "stderr": getattr(result, "stderr", ""),
