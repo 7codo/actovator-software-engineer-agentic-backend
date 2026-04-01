@@ -19,8 +19,6 @@ async def create_sandbox_with_auto_pause(github_token: str | None = None):
         auto_pause=True,
         envs={
             "NEXT_TELEMETRY_DISABLED": "1",
-            "AGENT_BROWSER_ENGINE": "lightpanda",
-            "AGENT_BROWSER_SCREENSHOT_DIR": "/home/user/.agent-browser/tmp/screenshots",
             "GITHUB_TOKEN": github_token or "",
         },
     )

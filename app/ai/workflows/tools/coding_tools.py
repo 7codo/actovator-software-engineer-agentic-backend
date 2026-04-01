@@ -346,9 +346,6 @@ class BuildSandboxTools:
 
         timestamp = int(time.time())
         screenshot_filename = f"screenshot-{timestamp}.png"
-        screenshot_path = (
-            f"/home/user/.agent-browser/tmp/screenshots/{screenshot_filename}"
-        )
 
         try:
             result = await self.execute_shell_command(
@@ -364,7 +361,9 @@ class BuildSandboxTools:
                     "image_data": None,
                 }
 
-            result = await self.execute_shell_command(f"base64 -w 0 {screenshot_path}")
+            result = await self.execute_shell_command(
+                f"base64 -w 0 {screenshot_filename}"
+            )
             image_data = result.stdout.strip()
 
             return [
@@ -381,7 +380,7 @@ class BuildSandboxTools:
             return self._shell_error("process_screenshot failed", e)
         finally:
             try:
-                await self.execute_shell_command(f"rm -f {screenshot_path}")
+                await self.execute_shell_command(f"rm -f {screenshot_filename}")
             except Exception:
                 pass
 
@@ -400,6 +399,14 @@ class BuildSandboxTools:
                 "stderr": "Rejected: use `process_screenshot` tool instead",
                 "exit_code": 1,
             }
+
+        parts = stripped.split()
+        if "--engine" not in parts:
+            # Find the position after 'agent-browser'
+            if parts[0] == "agent-browser":
+                parts.insert(1, "--engine")
+                parts.insert(2, "lightpanda")
+            stripped = " ".join(parts)
         try:
             result = await self.execute_shell_command(
                 stripped, cwd=PROJECT_PATH, user="root"
