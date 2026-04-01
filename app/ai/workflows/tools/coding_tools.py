@@ -343,7 +343,7 @@ class BuildSandboxTools:
     async def process_screenshot(
         self,
         url: str,
-        viewport: tuple[int, int] | None = None,
+        viewport: dict | None = None,
         device: str | None = None,
         annotate: bool = False,
         full_page: bool = True,
@@ -378,8 +378,8 @@ class BuildSandboxTools:
                 await self.execute_shell_command(
                     f'agent-browser set device "{device}"', user="root"
                 )
-            elif viewport:
-                width, height = viewport
+            elif viewport and "width" in viewport and "height" in viewport:
+                width, height = viewport["width"], viewport["height"]
                 await self.execute_shell_command(
                     f"agent-browser set viewport {width} {height}", user="root"
                 )
@@ -443,8 +443,11 @@ class BuildSandboxTools:
                         f"Screenshot captured: {screenshot_filename}"
                         + (f" | device={device}" if device else "")
                         + (
-                            f" | viewport={viewport[0]}x{viewport[1]}"
-                            if viewport and not device
+                            f" | viewport={viewport['width']}x{viewport['height']}"
+                            if viewport
+                            and not device
+                            and "width" in viewport
+                            and "height" in viewport
                             else ""
                         )
                         + (" | annotated=true" if annotate else "")
@@ -579,7 +582,7 @@ class BuildSandboxTools:
         @tool
         async def process_screenshot(
             url: str,
-            viewport: tuple[int, int] | None = None,
+            viewport: dict | None = None,
             device: str | None = None,
             annotate: bool = False,
             full_page: bool = True,
@@ -597,9 +600,9 @@ class BuildSandboxTools:
                 url (str):
                     The fully-qualified URL to capture (e.g. "https://example.com").
 
-                viewport (tuple[int, int] | None):
-                    Custom browser window size as (width, height) in CSS pixels.
-                    Example: (1920, 1080) for desktop, (375, 812) for a mobile width.
+                viewport (dict | None):
+                    Custom browser window size as a dict: {"width": INT, "height": INT}.
+                    Example: {"width": 1920, "height": 1080} for desktop, {"width": 375, "height": 812} for a mobile width.
                     Ignored when `device` is provided (device sets its own viewport).
 
                 device (str | None):
