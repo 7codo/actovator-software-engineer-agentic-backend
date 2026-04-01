@@ -361,10 +361,8 @@ class BuildSandboxTools:
                     "image_data": None,
                 }
 
-            sandbox = await self._get_sandbox()
-            file_content = await sandbox.files.read(screenshot_path)
-            print("file_content", file_content)
-            image_data = base64.b64encode(file_content).decode("utf-8")
+            result = await self.execute_shell_command(f"base64 -w 0 {screenshot_path}")
+            image_data = result.stdout.strip()
 
             return [
                 {
@@ -391,6 +389,12 @@ class BuildSandboxTools:
             return {
                 "stdout": "",
                 "stderr": f"Rejected: command must start with 'agent-browser', got: '{stripped[:60]}'",
+                "exit_code": 1,
+            }
+        if "screenshot" in stripped:
+            return {
+                "stdout": "",
+                "stderr": "Rejected: use `process_screenshot` tool instead",
                 "exit_code": 1,
             }
         try:
