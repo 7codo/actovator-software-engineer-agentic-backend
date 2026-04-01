@@ -495,16 +495,19 @@ class BuildSandboxTools:
             return await instance.execute_agent_browser(command=command)
 
         @tool
-        async def process_screenshot() -> list:
+        async def process_screenshot(url: str) -> list:
             """
-            Take a full-page screenshot using agent-browser and return it as a message array.
+            Capture a full-page screenshot of the provided URL using agent-browser.
+
+            Args:
+                url (str): The page URL to capture.
 
             Returns:
-                list with two items:
-                  - image_url block containing the screenshot as a base64-encoded PNG data URL
-                  - text block with the screenshot filename
+                list: Contains two items:
+                  - An image_url block with the screenshot as a base64-encoded PNG data URL
+                  - A text block with the screenshot filename
             """
-            return await instance.process_screenshot()
+            return await instance.process_screenshot(url)
 
         return {
             "execute_tool": execute_tool,
