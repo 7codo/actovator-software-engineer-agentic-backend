@@ -350,7 +350,7 @@ class BuildSandboxTools:
 
         try:
             result = await self.execute_shell_command(
-                f"agent-browser screenshot --full {screenshot_path}", cwd=PROJECT_PATH
+                f"agent-browser --engine chromium screenshot --full {screenshot_path}",
             )
             print("result", result)
             if getattr(result, "exit_code", 1) != 0:
@@ -362,7 +362,7 @@ class BuildSandboxTools:
                 }
 
             sandbox = await self._get_sandbox()
-            file_content = await sandbox.files.read(f"{PROJECT_PATH}/{screenshot_path}")
+            file_content = await sandbox.files.read(screenshot_path)
             print("file_content", file_content)
             image_data = base64.b64encode(file_content).decode("utf-8")
 
@@ -380,9 +380,7 @@ class BuildSandboxTools:
             return self._shell_error("process_screenshot failed", e)
         finally:
             try:
-                await self.execute_shell_command(
-                    f"rm -f {screenshot_path}", cwd=PROJECT_PATH
-                )
+                await self.execute_shell_command(f"rm -f {screenshot_path}")
             except Exception:
                 pass
 

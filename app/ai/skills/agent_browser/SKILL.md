@@ -80,7 +80,6 @@ agent-browser --session test-signup find label "Name" fill "Alice"
 ```bash
 agent-browser open http://localhotst:3000
 agent-browser wait --load networkidle
-agent-browser screenshot --full /tmp/agent-browser-data/homepage-$(date +%s).png
 ```
 
 ---
@@ -208,10 +207,7 @@ agent-browser highlight @e5
 # 3. Check console errors
 agent-browser errors
 
-# 4. Take a screenshot at the point of failure
-agent-browser screenshot /tmp/agent-browser-data/failure-$(date +%s).png
-
-# 5. Dump the full accessibility tree around the problem area
+# 4. Dump the full accessibility tree around the problem area
 agent-browser snapshot -s "#main-content"
 ```
 
@@ -231,7 +227,6 @@ agent-browser open http://localhotst:3000
 
 # Dark mode
 agent-browser set media dark
-agent-browser screenshot --full /mnt/agent-browser-data/dark-mode.png
 ```
 
 ---
@@ -251,7 +246,6 @@ agent-browser pdf /mnt/agent-browser-data/invoice-123.pdf
 - **Prefer `wait --url` / `wait --text`** over `wait <ms>` to avoid timing flakiness.
 - **Save auth state** once and reuse with `state load` to avoid slow repeated logins.
 - **Block noisy third-party scripts** with `network route … --abort` for faster, more deterministic tests.
-- **Output screenshots to `/mnt/agent-browser-data/`** so users can download them.
 - **Never hardcode `@refs`** — always snapshot the current page to get fresh refs.
 - **Use `--json` flag** when you need to parse output programmatically:
    ```bash

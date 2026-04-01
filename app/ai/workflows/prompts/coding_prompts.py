@@ -776,10 +776,8 @@ agent-browser open https://ui.shadcn.com/create
 ```
 2. Take a snapshot to discover interactive elements and their `@ref` IDs
 `agent-browser snapshot -i`
-3. take screenshot you'll feed it automatically so you see the current design 
-```
-agent-browser screenshot --full /tmp/agent-browser-data/homepage-$(date +%s).png
-```
+3. take screenshot using `process_screenshot` tool you'll feed it automatically so you see the current design 
+
 use `execute_agent_browser` tool 
 **Always snapshot before acting.** Refs (`@e1`, `@e2`, …) are assigned fresh each page load and may change between navigations. Never hardcode a ref from memory.
 

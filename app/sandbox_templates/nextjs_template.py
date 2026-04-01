@@ -45,15 +45,29 @@ def install_global_tools_cmds():
 def install_lightpanda_and_agent_browser_cmds():
     return [
         "curl -L -o /usr/local/bin/lightpanda https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux && chmod a+x /usr/local/bin/lightpanda",
-        "npm install -g agent-browser",
     ]
 
 
 def init_actovator_cmd():
     return (
-        "mkdir -p actovator tmp && "
+        "mkdir -p actovator && "
         'echo \'{"languages": ["bash", "markdown", "toml", "typescript", "yaml"]}\' > actovator/config.json'
     )
+
+
+def install_playwright_and_agent_browser_cmds():
+    return [
+        "npx playwright install chromium",
+        "npx playwright install-deps chromium",
+        "npm install -g agent-browser",
+        (
+            "apt-get install -y "
+            "libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libatk1.0-0 libatk-bridge2.0-0 "
+            "libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 "
+            "libgbm1 libasound2 libnspr4 libnss3 libx11-6 libxcb1 libxext6 libxss1 libxtst6 "
+            "fonts-liberation libappindicator3-1 libu2f-udev libvulkan1"
+        ),  # for Chromium
+    ]
 
 
 def run_init_next_script_cmd():
@@ -90,6 +104,7 @@ template = (
     .run_cmd(install_global_tools_cmds(), user="root")
     .run_cmd(install_lsp_servers_cmd(), user="root")
     .run_cmd(install_lightpanda_and_agent_browser_cmds(), user="root")
+    .run_cmd(install_playwright_and_agent_browser_cmds(), user="root")
     .run_cmd(clone_serena_repo_cmd())
     .set_user("user")
     .set_workdir(PROJECT_PATH)
