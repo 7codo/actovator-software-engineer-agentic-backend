@@ -14,6 +14,7 @@ from app.ai.workflows.prompts.coding_prompts import (
     E2E_TESTING_PROMPT,
     MEMORY_AGENT_PROMPT,
     GIT_AGENT_PROMPT,
+    DESIGN_SYSTEM_CREATOR_PROMPT,
 )
 from app.ai.workflows.tools.coding_tools import (
     BuildSandboxToolsDefinitions,
@@ -362,6 +363,25 @@ async def screenshot_testing_node(state: AgentState, config: RunnableConfig) -> 
     return {"messages": result["messages"]}
 
 
+async def interactively_node(state: AgentState, config: RunnableConfig) -> Command:
+    sandbox_builder = BuildSandboxTools(state["sandbox_id"])
+    lc_tools = sandbox_builder.as_langchain_tools()
+
+    result = await _run_subagent(
+        system_prompt=DESIGN_SYSTEM_CREATOR_PROMPT,
+        tools=[
+            get_agent_browser_skill,
+            lc_tools["execute_agent_browser"],
+            lc_tools["process_screenshot"],
+        ],
+        state=state,
+        agent_name="testing",
+        messages=state.get("messages"),
+    )
+
+    return {"messages": result["messages"]}
+
+
 # ---------------------------------------------------------------------------
 # GRAPH ASSEMBLY
 # ---------------------------------------------------------------------------
@@ -373,7 +393,8 @@ coding_workflow.add_node("executor", executor_node)
 coding_workflow.add_node("verification", verification_node)
 coding_workflow.add_node("e2e_testing", e2e_testing_node)
 coding_workflow.add_node("memory", memory_node)
-coding_workflow.add_node("testing", screenshot_testing_node)
+# coding_workflow.add_node("testing", screenshot_testing_node)
+coding_workflow.add_node("testing", interactively_node)
 
 
 coding_workflow.add_edge(START, "testing")

@@ -764,25 +764,32 @@ Respond in plain text. Summarize:
 """
 
 
-DESIGN_SYSTEM_PROMPT = """\
+DESIGN_SYSTEM_CREATOR_PROMPT = """\
 ## Role
-You are a UI design system builder using shadcn + Tailwind CSS.
-use agent-browser cli to create custom shadcn preset
+You are a UI design system builder using shadcn and Tailwind CSS.
+Guide the user through designing a custom theme interactively.
 
 ## Workflow
-1. Navigate to `https://ui.shadcn.com/create` (to create shadcn custom theme interactivelly)
-```
-agent-browser open https://ui.shadcn.com/create
-```
-2. Take a snapshot to discover interactive elements and their `@ref` IDs
-`agent-browser snapshot -i`
-3. take screenshot using `process_screenshot` tool you'll feed it automatically so you see the current design 
+1. Visit the shadcn theme creation tool:
+   ```
+   agent-browser open https://ui.shadcn.com/create
+   ```
+2. Take a snapshot to enumerate all interactive elements and obtain their fresh `@ref` IDs:
+   ```
+   agent-browser snapshot -i
+   ```
+3. Use the `process_screenshot` tool to review the current theme visually.
+4. Interactively select options by clicking:
+   - The "Menu" dropdown to toggle light/dark modes.
+   - The style chooser to select design styles.
+   - For each: base color, theme, chart color, heading, font, icon library, border radius, menu, and menu accent, make selections as specified.
+5. Retrieve the resulting preset ID after customization.
 
-use `execute_agent_browser` tool 
-**Always snapshot before acting.** Refs (`@e1`, `@e2`, …) are assigned fresh each page load and may change between navigations. Never hardcode a ref from memory.
-
-
-
+## Rules
+- Use the `execute_agent_browser` tool for all browser actions.
+- **Always snapshot before acting.** Never reuse `@ref` IDs across page loads.
+- Never hardcode or memorize `@ref` elements—obtain them freshly each time.
+- Regularly process screenshots to visually confirm theme changes.
 """
 DESIGN_SYSTEM_PROMPT = """\
 ## Role

@@ -346,11 +346,14 @@ class BuildSandboxTools:
 
         timestamp = int(time.time())
         screenshot_filename = f"screenshot-{timestamp}.png"
-        screenshot_path = f"/tmp/{screenshot_filename}"
+        screenshot_path = (
+            f"/home/user/.agent-browser/tmp/screenshots/{screenshot_filename}"
+        )
 
         try:
             result = await self.execute_shell_command(
-                f"agent-browser --engine chromium screenshot --full {screenshot_path}",
+                f"agent-browser --engine chromium screenshot --full {screenshot_filename}",
+                user="root",
             )
             print("result", result)
             if getattr(result, "exit_code", 1) != 0:
@@ -398,7 +401,9 @@ class BuildSandboxTools:
                 "exit_code": 1,
             }
         try:
-            result = await self.execute_shell_command(stripped, cwd=PROJECT_PATH)
+            result = await self.execute_shell_command(
+                stripped, cwd=PROJECT_PATH, user="root"
+            )
             return {
                 "stdout": getattr(result, "stdout", ""),
                 "stderr": getattr(result, "stderr", ""),
