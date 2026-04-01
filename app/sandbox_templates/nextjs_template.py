@@ -60,6 +60,7 @@ def install_playwright_and_agent_browser_cmds():
         "npm install -g agent-browser",
         "agent-browser install",
         "agent-browser install --with-deps",
+        "agent-browser dashboard install",
     ]
 
 

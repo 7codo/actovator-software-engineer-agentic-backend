@@ -340,145 +340,34 @@ class BuildSandboxTools:
         except Exception as e:
             return self._shell_error(f"Failed to {action} npm package '{package}'", e)
 
-    async def process_screenshot(
-        self,
-        url: str,
-        viewport: dict | None = None,
-        device: str | None = None,
-        annotate: bool = False,
-        full_page: bool = True,
-        wait_timeout_ms: int = 10000,
-    ) -> list | dict:
-        """
-        Core screenshot logic. See the @tool wrapper for parameter docs.
-        """
-        import time
-
-        timestamp = int(time.time())
-        screenshot_filename = f"screenshot-{timestamp}.png"
+    async def process_screenshot(self, filename: str) -> list | dict:
 
         try:
-            # Always start clean
-            await self.execute_shell_command("agent-browser close", user="root")
-
-            # Open the page
-            result = await self.execute_shell_command(
-                f"agent-browser open {url}", user="root"
-            )
-            if getattr(result, "exit_code", 1) != 0:
+            b64_result = await self.execute_shell_command(f"base64 -w 0 {filename}")
+            if getattr(b64_result, "exit_code", 1) != 0:
                 return {
-                    "stdout": getattr(result, "stdout", ""),
-                    "stderr": getattr(result, "stderr", ""),
-                    "exit_code": getattr(result, "exit_code", 1),
-                    "image_data": None,
+                    "stdout": getattr(b64_result, "stdout", ""),
+                    "stderr": getattr(b64_result, "stderr", ""),
+                    "exit_code": getattr(b64_result, "exit_code", 1),
                 }
 
-            # Device emulation takes precedence over viewport
-            if device:
-                await self.execute_shell_command(
-                    f'agent-browser set device "{device}"', user="root"
-                )
-            elif viewport and "width" in viewport and "height" in viewport:
-                width, height = viewport["width"], viewport["height"]
-                await self.execute_shell_command(
-                    f"agent-browser set viewport {width} {height}", user="root"
-                )
-
-            # Safe page-load wait:
-            # 1. Try networkidle with a capped timeout (some sites never reach idle)
-            # 2. Fall back to document.readyState === 'complete'
-            # 3. Last resort: short fixed delay
-            wait_result = await self.execute_shell_command(
-                f"AGENT_BROWSER_DEFAULT_TIMEOUT={wait_timeout_ms} "
-                f"agent-browser wait --load networkidle",
-                user="root",
-            )
-            if getattr(wait_result, "exit_code", 0) != 0:
-                fallback = await self.execute_shell_command(
-                    "agent-browser wait --fn \"document.readyState === 'complete'\"",
-                    user="root",
-                )
-                if getattr(fallback, "exit_code", 0) != 0:
-                    # Last resort — give the page a moment then continue anyway
-                    await self.execute_shell_command(
-                        "agent-browser wait 2000", user="root"
-                    )
-
-            # Build screenshot flags
-            flags = []
-            if full_page:
-                flags.append("--full")
-            if annotate:
-                flags.append("--annotate")
-            flags_str = " ".join(flags)
-
-            result = await self.execute_shell_command(
-                f"agent-browser screenshot {flags_str} {screenshot_filename}",
-                user="root",
-            )
-
-            await self.execute_shell_command("agent-browser close", user="root")
-
-            if getattr(result, "exit_code", 1) != 0:
-                return {
-                    "stdout": getattr(result, "stdout", ""),
-                    "stderr": getattr(result, "stderr", ""),
-                    "exit_code": getattr(result, "exit_code", 1),
-                    "image_data": None,
-                }
-
-            b64_result = await self.execute_shell_command(
-                f"base64 -w 0 {screenshot_filename}"
-            )
             image_data = b64_result.stdout.strip()
-
-            output = [
+            return [
                 {
                     "type": "image_url",
                     "image_url": {"url": f"data:image/png;base64,{image_data}"},
                 },
                 {
                     "type": "text",
-                    "text": (
-                        f"Screenshot captured: {screenshot_filename}"
-                        + (f" | device={device}" if device else "")
-                        + (
-                            f" | viewport={viewport['width']}x{viewport['height']}"
-                            if viewport
-                            and not device
-                            and "width" in viewport
-                            and "height" in viewport
-                            else ""
-                        )
-                        + (" | annotated=true" if annotate else "")
-                    ),
+                    "text": f"Screenshot loaded: {filename}",
                 },
             ]
-
-            if annotate:
-                output.append(
-                    {
-                        "type": "text",
-                        "text": (
-                            "Annotated screenshot: numbered labels (e.g. [1], [2]) "
-                            "are overlaid on interactive elements. Each label [N] maps "
-                            "to ref @eN for follow-up interactions."
-                        ),
-                    }
-                )
-
-            return output
-
         except Exception as e:
             return self._shell_error("process_screenshot failed", e)
-        finally:
-            try:
-                await self.execute_shell_command(f"rm -f {screenshot_filename}")
-            except Exception:
-                pass
 
-    async def execute_agent_browser(self, command: str) -> dict:
-
+    async def execute_agent_browser(
+        self, command: str, engine: str = "lightpanda"
+    ) -> dict:
         stripped = command.strip()
         if not stripped.startswith("agent-browser"):
             return {
@@ -486,22 +375,28 @@ class BuildSandboxTools:
                 "stderr": f"Rejected: command must start with 'agent-browser', got: '{stripped[:60]}'",
                 "exit_code": 1,
             }
-        if "screenshot" in stripped:
-            return {
-                "stdout": "",
-                "stderr": "Rejected: use `process_screenshot` tool instead",
-                "exit_code": 1,
-            }
 
         parts = stripped.split()
-        if "--engine" not in parts:
-            # Find the position after 'agent-browser'
-            if parts[0] == "agent-browser":
+
+        if engine == "lightpanda":
+            # Inject --engine lightpanda if not already present
+            if "--engine" not in parts:
                 parts.insert(1, "--engine")
                 parts.insert(2, "lightpanda")
             stripped = " ".join(parts)
+
+        else:
+            # Chrome: strip any existing --engine flag so it uses the default (chrome)
+            if "--engine" in parts:
+                idx = parts.index("--engine")
+                parts.pop(idx)  # remove --engine
+                parts.pop(idx)  # remove its value
+            stripped = " ".join(parts)
+
         try:
-            result = await self.execute_shell_command(stripped, cwd=PROJECT_PATH)
+            result = await self.execute_shell_command(
+                stripped, user="root", cwd=PROJECT_PATH
+            )
             return {
                 "stdout": getattr(result, "stdout", ""),
                 "stderr": getattr(result, "stderr", ""),
@@ -566,83 +461,44 @@ class BuildSandboxTools:
             return await instance.get_lint_checks()
 
         @tool
-        async def execute_agent_browser(command: str) -> dict:
+        async def execute_agent_browser(command: str, engine: str = "chrome") -> dict:
             """
-            Execute an agent-browser CLI command inside the sandbox.
+            Execute an agent-browser CLI command.
             Only accepts commands that start with 'agent-browser'.
 
+            Two engines are supported:
+
+            - **lightpanda** (default): Lightweight headless and faster browser. Prefer this for DOM queries, scraping, form interaction, and any task where you don't need visual output. The `--engine lightpanda` flag is injected automatically.
+
+            - **chrome**: Full Chromium browser. Use this when you need visual feedback — pixel-accurate rendering, CSS animations, canvas, WebGL, or anything that requires a real browser paint.
+
             Args:
-                command: A full agent-browser CLI command string.
+                command: A full agent-browser CLI command string (must start with 'agent-browser'). Do not include `--engine`; use the `engine` parameter instead.
+                engine: Which browser engine to use — "chrome" or "lightpanda" (default).
 
             Returns:
                 dict with 'stdout', 'stderr', and 'exit_code'.
             """
-            return await instance.execute_agent_browser(command=command)
+            return await instance.execute_agent_browser(command=command, engine=engine)
 
         @tool
-        async def process_screenshot(
-            url: str,
-            viewport: dict | None = None,
-            device: str | None = None,
-            annotate: bool = False,
-            full_page: bool = True,
-            wait_timeout_ms: int = 10000,
-        ) -> list:
+        async def process_screenshot(filename: str) -> list:
             """
-            Capture a screenshot of a URL using a headless browser (agent-browser).
+            Read a previously captured screenshot file return it as a base64-encoded image block.
 
-            Handles device emulation, custom viewports, element annotation, and
-            resilient page-load detection: first attempts network-idle (with a
-            configurable timeout), falls back to document.readyState, then a
-            short fixed delay — so it works even on sites that never reach idle.
+            This tool does NOT open a browser or navigate to any URL. Use it after you have already produced a screenshot file via `execute_agent_browser` (e.g. running `agent-browser screenshot myshot.png`).
 
             Args:
-                url (str):
-                    The fully-qualified URL to capture (e.g. "https://example.com").
-
-                viewport (dict | None):
-                    Custom browser window size as a dict: {"width": INT, "height": INT}.
-                    Example: {"width": 1920, "height": 1080} for desktop, {"width": 375, "height": 812} for a mobile width.
-                    Ignored when `device` is provided (device sets its own viewport).
-
-                device (str | None):
-                    Emulate a named device — sets viewport AND user-agent together.
-                    Takes precedence over `viewport`.
-                    Examples: "iPhone 14", "iPad Pro", "Pixel 7", "Galaxy S21".
-
-                annotate (bool):
-                    Overlay numbered labels ([1], [2], …) on every interactive element.
-                    Each label [N] maps to ref @eN for follow-up click/fill commands.
-                    Useful for debugging layouts, identifying buttons, or mapping a page
-                    before automation. Default: False.
-
-                full_page (bool):
-                    Capture the entire scrollable page, not just the visible viewport.
-                    Default: True. Set to False for above-the-fold / viewport-only shots.
-
-                wait_timeout_ms (int):
-                    How long (ms) to wait for network idle before falling back.
-                    Default: 10 000 (10 s). Raise for slow/heavy sites; lower for fast
-                    ones or pages that stream indefinitely (e.g. live dashboards).
+                filename: Only the screenshot file name not the path, Example: "screenshot.png" NOT "/home/user/myshot.png".
 
             Returns:
-                list: Two or three items:
-                    - image_url block  — base64-encoded PNG as a data URL.
-                    - text block       — filename plus a summary of options used.
-                    - text block       — (only when annotate=True) explains the label→ref
-                                        mapping for follow-up interactions.
+                list: Two items:
+                    - image_url block — base64-encoded PNG as a data URL.
+                    - text block      — the original filename for reference.
 
-            Raises:
-                Returns a dict with stdout/stderr/exit_code on browser or shell failure.
+                On failure, returns a dict with 'stdout', 'stderr', and 'exit_code'.
             """
-            return await instance.process_screenshot(
-                url,
-                viewport=viewport,
-                device=device,
-                annotate=annotate,
-                full_page=full_page,
-                wait_timeout_ms=wait_timeout_ms,
-            )
+            return await instance.process_screenshot(filename=filename)
 
         return {
             "execute_tool": execute_tool,
